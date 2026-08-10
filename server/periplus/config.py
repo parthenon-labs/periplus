@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     verification_chars_per_batch: int = Field(default=30_000, ge=1)
     max_verification_claims: int = Field(default=100, ge=1)
     max_verification_input_chars: int = Field(default=120_000, ge=1)
+    max_navigation_places: int = Field(default=40, ge=1)
+    max_navigation_claims: int = Field(default=200, ge=1)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     user_agent: str = "periplus/0.1 (+https://github.com/parthenon-labs/periplus)"
 

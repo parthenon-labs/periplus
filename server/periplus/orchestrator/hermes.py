@@ -40,8 +40,8 @@ __all__ = [
 ]
 
 #: The pipeline's full, fixed order. Hermes only ever runs a contiguous prefix of it —
-#: today that means research and verify; plan and write join the same list once they
-#: exist, with no change to the state machine.
+#: today that means research, verify and plan; write joins the same list once Chronicler
+#: exists, with no change to the state machine.
 STAGE_ORDER: tuple[Stage, ...] = (Stage.RESEARCH, Stage.VERIFY, Stage.PLAN, Stage.WRITE)
 
 

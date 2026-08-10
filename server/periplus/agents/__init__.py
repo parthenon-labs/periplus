@@ -4,6 +4,12 @@ Stages depend only on the model and retrieval seams. Provider clients, persisten
 end-to-end run state belong outside this package; Hermes will wire those pieces together.
 """
 
+from periplus.agents.navigation import (
+    ItemDraft,
+    ItineraryDraft,
+    NavigationAgent,
+    NavigationOutcome,
+)
 from periplus.agents.research import (
     ResearchAgent,
     ResearchExtraction,
@@ -23,6 +29,10 @@ from periplus.agents.verification import (
 
 __all__ = [
     "Auditor",
+    "ItemDraft",
+    "ItineraryDraft",
+    "NavigationAgent",
+    "NavigationOutcome",
     "ResearchAgent",
     "ResearchExtraction",
     "ResearchOutcome",
@@ -32,6 +42,7 @@ __all__ = [
     "VerificationDecision",
     "VerificationFailure",
     "VerificationOutcome",
+    "build_navigation_agent",
     "build_research_agent",
     "build_research_queries",
     "build_verification_agent",
@@ -54,6 +65,23 @@ def build_verification_agent(settings=None) -> VerificationAgent:
         max_claims=settings.max_verification_claims,
         max_input_chars=settings.max_verification_input_chars,
         max_evidence_per_claim=settings.max_evidence_per_claim,
+    )
+
+
+def build_navigation_agent(settings=None) -> NavigationAgent:
+    """Assemble Navigator with a live distance provider, if a Maps key is configured."""
+    from periplus.config import get_settings
+    from periplus.geo import build_distance_provider
+    from periplus.llm import build_client, policy_for
+    from periplus.models import Stage
+
+    settings = settings or get_settings()
+    return NavigationAgent(
+        llm=build_client(settings),
+        policy=policy_for(Stage.PLAN, settings),
+        distance=build_distance_provider(settings) if settings.has_maps_key else None,
+        max_places=settings.max_navigation_places,
+        max_claims=settings.max_navigation_claims,
     )
 
 

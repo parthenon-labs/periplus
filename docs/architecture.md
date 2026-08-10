@@ -154,15 +154,16 @@ model providers — only whether the next stage may run.
   every stage, and the latest artifact at each boundary (`research`, `verified`,
   `itinerary`, `content`) for convenience.
 - **Strict order** — Hermes runs a *contiguous prefix* of `research → verify → plan →
-  write`, starting at research; today that means research and verify, since Navigator
-  and Chronicler do not exist yet. Configuring a gap (verify without research) is
-  rejected at construction, not at run time.
+  write`, starting at research; today that means research, verify and plan, since
+  Chronicler does not exist yet. Configuring a gap (verify without research) is rejected
+  at construction, not at run time.
 - **Stage gates** — a stage adapter returning without raising is not enough to advance.
   Each stage has a gate — a predicate over the produced artifact — that must pass first;
   the default research gate requires at least one grounded claim, the default
-  verification gate requires every claim to carry a verdict. A gate failure is a logical
-  failure: it fails the stage immediately and is never auto-retried, because the same
-  input would produce the same artifact again.
+  verification gate requires every claim to carry a verdict, the default planning gate
+  requires at least one scheduled item. A gate failure is a logical failure: it fails the
+  stage immediately and is never auto-retried, because the same input would produce the
+  same artifact again.
 - **Budgets** — a `RunBudget` caps queries, fetches, tokens and wall clock for the whole
   `Run`, replays included. A `BudgetTracker` accumulates what each stage attempt reports
   spending and is checked twice: immediately after a stage attempt completes (so a stage

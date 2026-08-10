@@ -1,11 +1,12 @@
-"""Narrow protocols and adapters bridging Explorer and Auditor into Hermes.
+"""Narrow protocols and adapters bridging Explorer, Auditor and Navigator into Hermes.
 
 Hermes drives a :class:`StageAdapter` without knowing anything about retrieval, model
 calls, or batching. An adapter's only obligation is to run one stage on the artifact the
-previous stage produced and report what it used. All research and verification
-behaviour still lives in :class:`~periplus.agents.research.ResearchAgent` and
-:class:`~periplus.agents.verification.VerificationAgent`; the adapters below only
-translate between Hermes's generic pipeline and each agent's own narrow contract.
+previous stage produced and report what it used. All research, verification and planning
+behaviour still lives in :class:`~periplus.agents.research.ResearchAgent`,
+:class:`~periplus.agents.verification.VerificationAgent` and
+:class:`~periplus.agents.navigation.NavigationAgent`; the adapters below only translate
+between Hermes's generic pipeline and each agent's own narrow contract.
 """
 
 from __future__ import annotations
@@ -14,9 +15,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from periplus.agents.navigation import NavigationAgent
 from periplus.agents.research import ResearchAgent
 from periplus.agents.verification import VerificationAgent
-from periplus.models import Artifact, ModelCall, ResearchBundle, Stage, TripBrief, VerifiedBundle
+from periplus.models import (
+    Artifact,
+    Itinerary,
+    ModelCall,
+    ResearchBundle,
+    Stage,
+    TripBrief,
+    VerifiedBundle,
+)
 from periplus.orchestrator.budget import ResourceUsage
 from periplus.orchestrator.clock import Clock
 
@@ -63,11 +73,18 @@ def verification_gate(bundle: VerifiedBundle) -> str | None:
     return None
 
 
+def planning_gate(itinerary: Itinerary) -> str | None:
+    if not any(day.items for day in itinerary.days):
+        return "planning scheduled no items"
+    return None
+
+
 #: The default gate per stage. Passing ``gates={Stage.X: None}`` to :class:`Hermes`
 #: disables one explicitly rather than silently.
 DEFAULT_GATES: dict[Stage, StageGate | None] = {
     Stage.RESEARCH: research_gate,
     Stage.VERIFY: verification_gate,
+    Stage.PLAN: planning_gate,
 }
 
 
@@ -115,3 +132,20 @@ class VerificationStageAdapter:
         verified = outcome.to_bundle(stage_input)
         usage = ResourceUsage(tokens=outcome.total_tokens)
         return StageResult(artifact=verified, usage=usage, calls=list(outcome.calls))
+
+
+class NavigationStageAdapter:
+    """Wraps :class:`NavigationAgent`. Needs the trip brief alongside the verified bundle,
+    so it is constructed once per brief rather than reused across runs like the others.
+    """
+
+    stage = Stage.PLAN
+
+    def __init__(self, agent: NavigationAgent, *, brief: TripBrief) -> None:
+        self._agent = agent
+        self._brief = brief
+
+    async def run(self, stage_input: VerifiedBundle) -> StageResult:
+        outcome = await self._agent.plan(self._brief, stage_input)
+        usage = ResourceUsage(tokens=outcome.total_tokens)
+        return StageResult(artifact=outcome.itinerary, usage=usage, calls=list(outcome.calls))

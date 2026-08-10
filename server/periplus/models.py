@@ -319,6 +319,12 @@ class Transfer(Artifact):
 
     mode: str = Field(description="walk, metro, bus, train, ferry, taxi, drive")
     minutes: int = Field(ge=0)
+    meters: int | None = Field(
+        default=None,
+        ge=0,
+        description="Set when Navigator grounded this transfer against a real route; "
+        "unset when no coordinates were available to look one up.",
+    )
     detail: str | None = None
     claim_ids: list[str] = Field(default_factory=list)
 

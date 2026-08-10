@@ -31,11 +31,13 @@ from periplus.orchestrator.hermes import (
 )
 from periplus.orchestrator.stages import (
     DEFAULT_GATES,
+    NavigationStageAdapter,
     ResearchStageAdapter,
     StageAdapter,
     StageGate,
     StageResult,
     VerificationStageAdapter,
+    planning_gate,
     research_gate,
     verification_gate,
 )
@@ -51,6 +53,7 @@ __all__ = [
     "HermesError",
     "InMemoryArtifactStore",
     "InvalidTransition",
+    "NavigationStageAdapter",
     "ReplayError",
     "ResearchStageAdapter",
     "ResourceUsage",
@@ -66,23 +69,38 @@ __all__ = [
     "TransientStageError",
     "VerificationStageAdapter",
     "build_hermes",
+    "planning_gate",
     "research_gate",
     "verification_gate",
 ]
 
 
-def build_hermes(settings=None) -> Hermes:
-    """Assemble Hermes with live Explorer/Auditor adapters from runtime settings."""
-    from periplus.agents import build_research_agent, build_verification_agent
+def build_hermes(settings=None, *, brief=None) -> Hermes:
+    """Assemble Hermes with live stage adapters from runtime settings.
+
+    Research and verify need nothing beyond ``settings`` and are wired unconditionally.
+    Navigator's contract needs the trip brief too — see
+    :class:`~periplus.orchestrator.stages.NavigationStageAdapter` — so plan only joins the
+    pipeline when a ``brief`` is supplied, i.e. call this once per brief when a plan is
+    wanted, the same way :class:`Hermes` itself already runs one ``Run`` per brief.
+    """
+    from periplus.agents import (
+        build_navigation_agent,
+        build_research_agent,
+        build_verification_agent,
+    )
     from periplus.config import get_settings
 
     settings = settings or get_settings()
     clock = SystemClock()
+    adapters = {
+        Stage.RESEARCH: ResearchStageAdapter(build_research_agent(settings)),
+        Stage.VERIFY: VerificationStageAdapter(build_verification_agent(settings), clock=clock),
+    }
+    if brief is not None:
+        adapters[Stage.PLAN] = NavigationStageAdapter(build_navigation_agent(settings), brief=brief)
     return Hermes(
-        adapters={
-            Stage.RESEARCH: ResearchStageAdapter(build_research_agent(settings)),
-            Stage.VERIFY: VerificationStageAdapter(build_verification_agent(settings), clock=clock),
-        },
+        adapters=adapters,
         retry=StageRetryPolicy(
             max_attempts=settings.stage_max_attempts,
             backoff_seconds=settings.stage_retry_backoff_seconds,
