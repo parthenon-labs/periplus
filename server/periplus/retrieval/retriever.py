@@ -149,6 +149,11 @@ class Retriever:
 
         return documents
 
+    async def aclose(self) -> None:
+        """Release the search and fetch clients assembled behind this seam."""
+        await self.search.aclose()
+        await self.fetcher.aclose()
+
     def _from_page(
         self,
         page: FetchedPage,

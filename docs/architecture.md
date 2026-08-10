@@ -105,6 +105,24 @@ recognised as the operator's own only if its stem *is* the venue's name or short
 `museodelprado.es` is the museum; `museodelprado-tickets.org` is an agency, and a
 reseller's markup must not inherit the museum's authority.
 
+## Research: Explorer
+
+Explorer spends model judgement on extraction, not on work that can be deterministic.
+It builds a stable, bounded query plan from destination, dates and explicit constraints,
+then retrieves and batches source documents under a character ceiling. Stable queries
+improve cache reuse and avoid paying a separate model call merely to phrase a search.
+
+The model returns candidate places and atomic claim drafts. Every draft names a local
+source index and supplies an exact quotation. That quotation is treated as untrusted
+until the application finds it in the cited `SourceDocument` and mints an `Evidence`
+object. Bad source indexes, paraphrases wearing quotation marks and ungrounded places are
+rejected visibly into `ResearchBundle.gaps`; partial search or fetch failures remain gaps
+while surviving sources continue through the stage.
+
+Exact duplicate claims merge across batches and may retain several independent evidence
+records up to a configured cap. This is syntactic deduplication only. Semantic conflict
+and corroboration belong to Auditor, not Explorer.
+
 ## Orchestration: Hermes
 
 Hermes owns everything that is not a stage:

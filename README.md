@@ -6,9 +6,9 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 > observations recorded leg by leg, in the order you meet them. That is exactly what a
 > good itinerary is: a sourced, executable document. Hence the name.
 
-> **Status: early construction.** The domain model and architecture are settled; the
-> agents, API and web client are being built in the open. Nothing here is production
-> ready yet, and the roadmap below marks what actually exists.
+> **Status: early construction.** The domain model, model/retrieval seams and research
+> agent exist; verification, orchestration, API and web client are still being built in
+> the open. Nothing here is production ready yet, and the roadmap below marks what exists.
 
 ## Why this exists
 
@@ -97,7 +97,7 @@ on disk, so repeating the same query is free and offline.
 - [x] Architecture and stage contracts
 - [x] Model seam — structured output, repair loop, per-stage policy, cost accounting
 - [x] Retrieval — search seam, polite fetching, boilerplate stripping, page cache, provenance
-- [ ] Research agent — queries, claim extraction, evidence binding
+- [x] Research agent — bounded queries, batched extraction, exact-quote evidence binding
 - [ ] Verification agent and verdict rules
 - [ ] Hermes orchestrator and run persistence
 - [ ] Planner and travel-time constraints
