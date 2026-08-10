@@ -6,10 +6,10 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 > observations recorded leg by leg, in the order you meet them. That is exactly what a
 > good itinerary is: a sourced, executable document. Hence the name.
 
-> **Status: early construction.** The domain model, model/retrieval seams, Explorer,
-> Auditor and Hermes exist; run persistence, planner, writer, API and web client are
-> still being built in the open. Nothing here is production ready yet, and the roadmap
-> below marks what exists.
+> **Status: early construction.** The full pipeline exists — Explorer, Auditor,
+> Navigator, Chronicler and Hermes — plus a first HTTP layer over it; run persistence
+> and a web client are still being built in the open. Nothing here is production ready
+> yet, and the roadmap below marks what exists.
 
 ## Why this exists
 
@@ -115,7 +115,7 @@ is listed in `VerificationOutcome.failures` (and in bundle gaps when reattached)
 ## Orchestrating a run offline
 
 Hermes drives a run through whichever prefix of `research → verify → plan → write` has
-an adapter registered — today that is research and verify. It owns run/stage state,
+an adapter registered. It owns run/stage state,
 strict stage order, per-run budgets, bounded stage-level retries, and replay from a
 retained artifact boundary; it knows nothing about how a stage does its work.
 
@@ -180,10 +180,10 @@ on disk, so repeating the same query is free and offline.
 - [x] Research agent — bounded queries/sources, batched extraction, exact-quote evidence binding
 - [x] Verification agent — grouped evidence, strict cited IDs, deterministic freshness
 - [x] Hermes orchestrator — stage gates, budgets, bounded retries, replay (in-memory)
+- [x] Planner — Navigator, day-by-day scheduling grounded in real travel times (Google Maps seam)
+- [x] Writer — Chronicler, content pieces grounded in verified claims
+- [x] HTTP API — submit a trip, poll the run (in-process only, no persistence yet)
 - [ ] Run persistence (PostgreSQL)
-- [ ] Planner and travel-time constraints
-- [ ] Writer and content artifacts
-- [ ] HTTP API
 - [ ] Web client
 
 ## Repository layout
