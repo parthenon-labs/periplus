@@ -69,6 +69,8 @@ class Settings(BaseSettings):
 
     # --- Run limits -------------------------------------------------------------------
     max_research_queries: int = Field(default=12, ge=1)
+    max_research_documents: int = Field(default=24, ge=1)
+    max_research_document_chars: int = Field(default=120_000, ge=1)
     research_documents_per_batch: int = Field(default=6, ge=1)
     research_chars_per_batch: int = Field(default=60_000, ge=1)
     max_evidence_per_claim: int = Field(default=5, ge=1)

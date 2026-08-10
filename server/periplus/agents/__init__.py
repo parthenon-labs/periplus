@@ -35,5 +35,7 @@ def build_research_agent(settings=None) -> ResearchAgent:
         max_queries=settings.max_research_queries,
         max_documents_per_batch=settings.research_documents_per_batch,
         max_chars_per_batch=settings.research_chars_per_batch,
+        max_total_documents=settings.max_research_documents,
+        max_total_document_chars=settings.max_research_document_chars,
         max_evidence_per_claim=settings.max_evidence_per_claim,
     )

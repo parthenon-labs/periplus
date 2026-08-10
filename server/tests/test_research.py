@@ -98,6 +98,10 @@ class TestQueryPlan:
     def test_zero_limit_produces_no_queries(self):
         assert build_research_queries(brief(), limit=0) == []
 
+    def test_explicit_must_see_queries_survive_a_tight_limit(self):
+        queries = build_research_queries(brief(), limit=3)
+        assert all("Sydney Opera House" in query for query in queries[1:])
+
 
 class TestGrounding:
     async def test_builds_claim_evidence_and_place_from_an_exact_quote(self):
@@ -189,7 +193,7 @@ class TestFailureAndBudgets:
         assert llm.call_count == 2
         assert len(outcome.bundle.places) == 2
 
-    async def test_query_budget_is_passed_to_retrieval(self):
+    async def test_query_budget_is_passed_to_retrieval_and_reported(self):
         retriever = FixedRetriever(RetrievalResult())
         explorer = ResearchAgent(
             llm=ScriptedClient([]),
@@ -197,8 +201,59 @@ class TestFailureAndBudgets:
             policy=StagePolicy(model="scripted"),
             max_queries=3,
         )
-        await explorer.research(brief())
+        outcome = await explorer.research(brief())
         assert len(retriever.calls[0][0]) == 3
+        assert any("Query limit reached" in gap for gap in outcome.bundle.gaps)
+
+    async def test_whole_run_document_budget_skips_excess_sources(self):
+        exact = "Fact one is exact."
+        docs = [
+            document(url="https://a.example/one", text=exact),
+            document(url="https://b.example/two", text="Fact two is exact."),
+        ]
+        result = RetrievalResult(documents=docs, queries_run=["q"])
+        explorer, llm = agent(
+            [extraction(quote=exact, text=exact, name="One")],
+            result,
+            max_total_documents=1,
+        )
+        outcome = await explorer.research(brief())
+        assert llm.call_count == 1
+        assert len(outcome.bundle.places) == 1
+        assert any("input budget reached" in gap for gap in outcome.bundle.gaps)
+
+    async def test_whole_run_character_budget_truncates_before_model_call(self):
+        prefix = "Exact."
+        result = RetrievalResult(
+            documents=[document(text=prefix + " Material outside the budget.")],
+            queries_run=["q"],
+        )
+        explorer, llm = agent(
+            [extraction(quote=prefix, text=prefix)],
+            result,
+            max_total_document_chars=len(prefix),
+        )
+        outcome = await explorer.research(brief())
+        assert llm.call_count == 1
+        assert prefix in llm.last_request[1].content
+        assert "outside the budget" not in llm.last_request[1].content
+        assert any("input budget reached" in gap for gap in outcome.bundle.gaps)
+
+    async def test_duplicate_source_is_not_sent_to_the_model_twice(self):
+        exact = "The venue opens daily at 9am."
+        docs = [
+            document(url="https://www.example.com/visit?utm_source=one", text=exact),
+            document(url="https://example.com/visit", text=exact),
+        ]
+        result = RetrievalResult(documents=docs, queries_run=["q"])
+        explorer, llm = agent(
+            [extraction(quote=exact, text=exact, name="Venue")],
+            result,
+            max_documents_per_batch=1,
+        )
+        outcome = await explorer.research(brief())
+        assert llm.call_count == 1
+        assert any("duplicate source" in gap for gap in outcome.bundle.gaps)
 
 
 class TestDeduplication:
@@ -240,3 +295,4 @@ class TestDeduplication:
         outcome = await explorer.research(brief())
         assert len(outcome.bundle.claims[0].evidence_ids) == 2
         assert len(outcome.bundle.evidence) == 2
+        assert any("Evidence limit reached" in gap for gap in outcome.bundle.gaps)

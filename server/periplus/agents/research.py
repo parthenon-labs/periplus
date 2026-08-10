@@ -16,7 +16,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from periplus.llm import LLMClient, StagePolicy
-from periplus.llm.base import StructuredOutputError
+from periplus.llm.base import LLMError, StructuredOutputError
 from periplus.models import (
     Claim,
     ClaimKind,
@@ -33,6 +33,7 @@ from periplus.retrieval import (
     RetrievalResult,
     SnippetNotFound,
     SourceDocument,
+    canonical_key,
     classify_source,
 )
 
@@ -57,15 +58,19 @@ class Draft(BaseModel):
 
 
 class ClaimDraft(Draft):
-    subject: str
-    text: str = Field(description="One falsifiable assertion; never combine two facts.")
+    subject: str = Field(min_length=1)
+    text: str = Field(
+        min_length=1, description="One falsifiable assertion; never combine two facts."
+    )
     kind: ClaimKind = ClaimKind.OTHER
     source_index: int = Field(ge=0, description="Index of the source document quoted below.")
-    quote: str = Field(description="An exact, verbatim passage copied from that source.")
+    quote: str = Field(
+        min_length=1, description="An exact, verbatim passage copied from that source."
+    )
 
 
 class PlaceDraft(Draft):
-    name: str
+    name: str = Field(min_length=1)
     kind: PlaceKind = PlaceKind.OTHER
     address: str | None = None
     summary: str | None = None
@@ -90,19 +95,17 @@ class ResearchOutcome:
         return sum(call.prompt_tokens + call.completion_tokens for call in self.calls)
 
 
-def build_research_queries(brief: TripBrief, *, limit: int = 12) -> list[str]:
-    """Build a bounded, stable search plan without spending a model call."""
-    if limit <= 0:
+def build_research_queries(brief: TripBrief, *, limit: int | None = 12) -> list[str]:
+    """Build a stable search plan without spending a model call.
+
+    ``None`` returns the complete plan. Explorer uses it before applying the run limit so
+    omitted queries can be reported rather than disappearing silently.
+    """
+    if limit is not None and limit <= 0:
         return []
     destination = _clean(brief.destination)
     dates = f"{brief.start_date:%B %Y}"
-    candidates = [
-        f"{destination} official tourism attractions {dates}",
-        f"{destination} attractions official opening hours tickets booking",
-        f"{destination} public transport official fares journey planning",
-        f"{destination} official travel alerts closures safety {dates}",
-        f"{destination} accessible travel official information",
-    ]
+    candidates = [f"{destination} official tourism attractions {dates}"]
 
     for place in brief.must_see:
         candidates.extend(
@@ -114,6 +117,14 @@ def build_research_queries(brief: TripBrief, *, limit: int = 12) -> list[str]:
 
     for interest in brief.interests:
         candidates.append(f"{destination} best {_clean(interest)} official guide {dates}")
+
+    candidates.extend(
+        [
+            f"{destination} attractions official opening hours tickets booking",
+            f"{destination} public transport official fares journey planning",
+            f"{destination} official travel alerts closures safety {dates}",
+        ]
+    )
 
     if brief.dietary:
         dietary = " ".join(_clean(item) for item in brief.dietary)
@@ -131,7 +142,7 @@ def build_research_queries(brief: TripBrief, *, limit: int = 12) -> list[str]:
         if key not in seen:
             seen.add(key)
             unique.append(query)
-        if len(unique) == limit:
+        if limit is not None and len(unique) == limit:
             break
     return unique
 
@@ -148,6 +159,8 @@ class ResearchAgent:
         max_queries: int = 12,
         max_documents_per_batch: int = 6,
         max_chars_per_batch: int = 60_000,
+        max_total_documents: int = 24,
+        max_total_document_chars: int = 120_000,
         max_evidence_per_claim: int = 5,
     ) -> None:
         self.llm = llm
@@ -156,10 +169,13 @@ class ResearchAgent:
         self.max_queries = max(1, max_queries)
         self.max_documents_per_batch = max(1, max_documents_per_batch)
         self.max_chars_per_batch = max(1, max_chars_per_batch)
+        self.max_total_documents = max(1, max_total_documents)
+        self.max_total_document_chars = max(1, max_total_document_chars)
         self.max_evidence_per_claim = max(1, max_evidence_per_claim)
 
     async def research(self, brief: TripBrief) -> ResearchOutcome:
-        queries = build_research_queries(brief, limit=self.max_queries)
+        planned_queries = build_research_queries(brief, limit=None)
+        queries = planned_queries[: self.max_queries]
         retrieval = await self.retriever.gather(queries, subject=brief.destination)
         bundle = ResearchBundle(
             brief_id=brief.id,
@@ -168,12 +184,38 @@ class ResearchAgent:
         )
         outcome = ResearchOutcome(bundle=bundle)
 
+        if len(planned_queries) > len(queries):
+            bundle.gaps.append(
+                f"Query limit reached: generated {len(planned_queries)}; ran {len(queries)}."
+            )
+
         if not retrieval.documents:
             bundle.gaps.append("No readable sources were retrieved.")
             return outcome
 
-        batches = _batches(
+        documents, duplicate_count, budget_count = _select_documents(
             retrieval.documents,
+            max_documents=self.max_total_documents,
+            max_chars=self.max_total_document_chars,
+        )
+        if duplicate_count:
+            bundle.gaps.append(f"Skipped {duplicate_count} duplicate source(s).")
+        if budget_count:
+            bundle.gaps.append(
+                "Research input budget reached: "
+                f"processed {len(documents)} source(s); "
+                f"truncated or skipped {budget_count} source(s)."
+            )
+
+        oversized_count = sum(
+            document.char_count > self.max_chars_per_batch for document in documents
+        )
+        if oversized_count:
+            bundle.gaps.append(
+                f"Batch character limit truncated {oversized_count} source document(s)."
+            )
+        batches = _batches(
+            documents,
             max_documents=self.max_documents_per_batch,
             max_chars=self.max_chars_per_batch,
         )
@@ -210,11 +252,15 @@ class ResearchAgent:
             outcome.calls.extend(exc.attempts)
             outcome.bundle.gaps.append(f"Research extraction failed: {exc}")
             return
+        except LLMError as exc:
+            outcome.bundle.gaps.append(f"Research extraction failed: {exc}")
+            return
 
         outcome.calls.extend(completion.calls)
         outcome.bundle.gaps.extend(completion.value.gaps)
         evidence_by_key: dict[tuple[str, str], Evidence] = {
-            (str(item.url), _normal(item.snippet)): item for item in outcome.bundle.evidence
+            (_source_key(str(item.url)), _normal(item.snippet)): item
+            for item in outcome.bundle.evidence
         }
 
         for draft in completion.value.places:
@@ -248,7 +294,7 @@ class ResearchAgent:
                     evidence.source_kind = classify_source(
                         source.url, subject=claim_draft.subject
                     )
-                evidence_key = (str(evidence.url), _normal(evidence.snippet))
+                evidence_key = (_source_key(str(evidence.url)), _normal(evidence.snippet))
                 evidence = evidence_by_key.setdefault(evidence_key, evidence)
                 if evidence not in outcome.bundle.evidence:
                     outcome.bundle.evidence.append(evidence)
@@ -309,16 +355,51 @@ def _batches(
     current: list[SourceDocument] = []
     chars = 0
     for document in documents:
-        document_chars = document.char_count
+        bounded = document.truncated(max_chars)
+        document_chars = bounded.char_count
         if current and (len(current) >= max_documents or chars + document_chars > max_chars):
             batches.append(current)
             current = []
             chars = 0
-        current.append(document)
+        current.append(bounded)
         chars += document_chars
     if current:
         batches.append(current)
     return batches
+
+
+def _select_documents(
+    documents: list[SourceDocument], *, max_documents: int, max_chars: int
+) -> tuple[list[SourceDocument], int, int]:
+    """Deduplicate sources and enforce the whole-run model-input budget."""
+    selected: list[SourceDocument] = []
+    seen: set[str] = set()
+    duplicate_count = 0
+    budget_count = 0
+    remaining = max_chars
+
+    for document in documents:
+        key = _source_key(document.url)
+        if key in seen:
+            duplicate_count += 1
+            continue
+        seen.add(key)
+
+        if len(selected) >= max_documents or remaining <= 0:
+            budget_count += 1
+            continue
+
+        if document.char_count > remaining:
+            budget_count += 1
+        bounded = document.truncated(remaining)
+        if not bounded.text:
+            if document.char_count <= remaining:
+                budget_count += 1
+            continue
+        selected.append(bounded)
+        remaining -= bounded.char_count
+
+    return selected, duplicate_count, budget_count
 
 
 def _deduplicate_bundle(bundle: ResearchBundle, *, max_evidence_per_claim: int) -> None:
@@ -334,11 +415,15 @@ def _deduplicate_bundle(bundle: ResearchBundle, *, max_evidence_per_claim: int) 
             continue
         claim_replacements[claim.id] = existing.id
         for evidence_id in claim.evidence_ids:
-            if (
-                evidence_id not in existing.evidence_ids
-                and len(existing.evidence_ids) < max_evidence_per_claim
-            ):
-                existing.evidence_ids.append(evidence_id)
+            if evidence_id in existing.evidence_ids:
+                continue
+            if len(existing.evidence_ids) >= max_evidence_per_claim:
+                bundle.gaps.append(
+                    f"Evidence limit reached for claim {existing.text!r}: "
+                    f"kept {max_evidence_per_claim} source(s)."
+                )
+                continue
+            existing.evidence_ids.append(evidence_id)
     bundle.claims = claims
 
     places: list[Place] = []
@@ -383,3 +468,10 @@ def _unique_text(values: list[str]) -> list[str]:
             seen.add(key)
             result.append(value)
     return result
+
+
+def _source_key(url: str) -> str:
+    try:
+        return canonical_key(url)
+    except ValueError:
+        return url.strip().casefold()

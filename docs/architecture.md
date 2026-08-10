@@ -109,15 +109,18 @@ reseller's markup must not inherit the museum's authority.
 
 Explorer spends model judgement on extraction, not on work that can be deterministic.
 It builds a stable, bounded query plan from destination, dates and explicit constraints,
-then retrieves and batches source documents under a character ceiling. Stable queries
-improve cache reuse and avoid paying a separate model call merely to phrase a search.
+then retrieves source documents under whole-run document/character ceilings and batches
+that bounded set under a per-call character ceiling. Stable queries improve cache reuse
+and avoid paying a separate model call merely to phrase a search.
 
 The model returns candidate places and atomic claim drafts. Every draft names a local
 source index and supplies an exact quotation. That quotation is treated as untrusted
 until the application finds it in the cited `SourceDocument` and mints an `Evidence`
 object. Bad source indexes, paraphrases wearing quotation marks and ungrounded places are
 rejected visibly into `ResearchBundle.gaps`; partial search or fetch failures remain gaps
-while surviving sources continue through the stage.
+while surviving sources continue through the stage. Query truncation, input-budget
+truncation and duplicate-source removal are gaps too, so a bounded run never looks
+complete by accident.
 
 Exact duplicate claims merge across batches and may retain several independent evidence
 records up to a configured cap. This is syntactic deduplication only. Semantic conflict

@@ -97,7 +97,7 @@ on disk, so repeating the same query is free and offline.
 - [x] Architecture and stage contracts
 - [x] Model seam — structured output, repair loop, per-stage policy, cost accounting
 - [x] Retrieval — search seam, polite fetching, boilerplate stripping, page cache, provenance
-- [x] Research agent — bounded queries, batched extraction, exact-quote evidence binding
+- [x] Research agent — bounded queries/sources, batched extraction, exact-quote evidence binding
 - [ ] Verification agent and verdict rules
 - [ ] Hermes orchestrator and run persistence
 - [ ] Planner and travel-time constraints
