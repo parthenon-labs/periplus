@@ -147,13 +147,60 @@ and corroboration belong to Auditor, not Explorer.
 
 ## Orchestration: Hermes
 
-Hermes owns everything that is not a stage:
+Hermes owns everything that is not a stage. It knows nothing about retrieval, prompts or
+model providers — only whether the next stage may run.
 
-- **Run state** — a `Run` record per execution, with the artifact emitted at each stage
-  boundary persisted for replay.
-- **Budgets** — caps on queries, fetches, tokens and wall clock, enforced per run.
-- **Retries** — stage-level, with the failing artifact preserved rather than overwritten.
-- **Audit trail** — every model call recorded with its stage, prompt hash and cost.
+- **Run state** — a `Run` record per execution, carrying every `StageRun` attempt for
+  every stage, and the latest artifact at each boundary (`research`, `verified`,
+  `itinerary`, `content`) for convenience.
+- **Strict order** — Hermes runs a *contiguous prefix* of `research → verify → plan →
+  write`, starting at research; today that means research and verify, since Navigator
+  and Chronicler do not exist yet. Configuring a gap (verify without research) is
+  rejected at construction, not at run time.
+- **Stage gates** — a stage adapter returning without raising is not enough to advance.
+  Each stage has a gate — a predicate over the produced artifact — that must pass first;
+  the default research gate requires at least one grounded claim, the default
+  verification gate requires every claim to carry a verdict. A gate failure is a logical
+  failure: it fails the stage immediately and is never auto-retried, because the same
+  input would produce the same artifact again.
+- **Budgets** — a `RunBudget` caps queries, fetches, tokens and wall clock for the whole
+  `Run`, replays included. A `BudgetTracker` accumulates what each stage attempt reports
+  spending and is checked twice: immediately after a stage attempt completes (so a stage
+  that pushes cumulative usage over the ceiling fails its own attempt outright, and is
+  never marked a valid replay boundary, even if it is the last configured stage) and again
+  before the next attempt starts (so an already-exhausted budget stops downstream work,
+  or a retry waiting out backoff, without cutting off a stage already in flight). Neither
+  check ever happens mid-call. `Hermes.replay` seeds a fresh `BudgetTracker` with
+  everything `run.stages` already spent rather than resetting it to zero, so resuming a
+  run repeatedly cannot be used to spend past its ceiling one stage at a time. Wall-clock
+  accounting goes through an injected `Clock` and only counts time actually spent running
+  a stage, not idle time between calls, so replaying a run long after it stopped is not
+  itself charged against it; tests never sleep for real.
+- **Retries** — bounded per stage by a `StageRetryPolicy`, and transient failures are not
+  logical ones. A stage adapter raises `TransientStageError` for something worth retrying
+  with the same input (consumes the retry bound, with backoff) and `StageFailure` for
+  something that would not change on retry (fails immediately, bound untouched). Both are
+  recorded as a failed `StageRun`, tagged in `error` so the two are never confused after
+  the fact.
+- **Artifact retention and replay** — every stage attempt's artifact is retained, whether
+  it passed its gate or not, keyed by run, stage and attempt; a later attempt never
+  overwrites an earlier one. `Hermes.replay(run, from_stage=...)` resumes from the most
+  recent *gate-passed* attempt at the stage before `from_stage`, without re-invoking any
+  adapter for the stages before it.
+- **Cancellation** — an injected `is_cancelled` predicate is checked at the top of every
+  stage attempt; once true, no further stage starts and the run ends `cancelled` rather
+  than `failed`.
+- **Audit trail** — every model call each stage adapter reports is attached to that
+  attempt's `StageRun.calls`, including calls from attempts that later failed a gate, so
+  `Run.total_tokens` reflects everything actually spent.
+
+`ResearchStageAdapter` and `VerificationStageAdapter` (`periplus.orchestrator.stages`)
+are the narrow bridge from Hermes's generic `StageAdapter` protocol to Explorer and
+Auditor's own contracts — the verify adapter is what turns a `ResearchBundle` into the
+bare claims-and-evidence call Auditor accepts, and reattaches the result. Run
+persistence (PostgreSQL) is not implemented yet; `InMemoryArtifactStore` is the only
+`ArtifactStore` today, chosen so the same protocol can be backed by a table later without
+Hermes changing.
 
 The name is deliberate and internal: Hermes is the god of travellers and the messenger
 between parties, which is precisely this component's job. It is not the repository name —

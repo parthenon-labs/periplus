@@ -89,6 +89,14 @@ class ResearchOutcome:
     bundle: ResearchBundle
     calls: list[ModelCall] = field(default_factory=list)
     rejected_quotes: int = 0
+    #: Exact retrieval-attempt counts, carried straight through from
+    #: :class:`~periplus.retrieval.RetrievalResult` — see its docstring. These, not
+    #: ``len(bundle.queries_run)`` or a count of accepted evidence URLs, are what a
+    #: budget-charging seam like :class:`~periplus.orchestrator.stages.ResearchStageAdapter`
+    #: must charge: they include failed queries and fetches that were attempted but never
+    #: produced accepted evidence.
+    queries_attempted: int = 0
+    fetch_attempts: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -182,7 +190,11 @@ class ResearchAgent:
             queries_run=retrieval.queries_run,
             gaps=list(retrieval.failures),
         )
-        outcome = ResearchOutcome(bundle=bundle)
+        outcome = ResearchOutcome(
+            bundle=bundle,
+            queries_attempted=retrieval.queries_attempted,
+            fetch_attempts=retrieval.fetch_attempts,
+        )
 
         if len(planned_queries) > len(queries):
             bundle.gaps.append(

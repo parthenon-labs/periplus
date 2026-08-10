@@ -6,9 +6,10 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 > observations recorded leg by leg, in the order you meet them. That is exactly what a
 > good itinerary is: a sourced, executable document. Hence the name.
 
-> **Status: early construction.** The domain model, model/retrieval seams, Explorer and
-> Auditor exist; orchestration, API and web client are still being built in the open.
-> Nothing here is production ready yet, and the roadmap below marks what exists.
+> **Status: early construction.** The domain model, model/retrieval seams, Explorer,
+> Auditor and Hermes exist; run persistence, planner, writer, API and web client are
+> still being built in the open. Nothing here is production ready yet, and the roadmap
+> below marks what exists.
 
 ## Why this exists
 
@@ -111,6 +112,52 @@ Batch count, per-batch characters, whole-stage claim/input totals, and evidence 
 all have configuration ceilings. Anything that cannot be checked remains unverified and
 is listed in `VerificationOutcome.failures` (and in bundle gaps when reattached).
 
+## Orchestrating a run offline
+
+Hermes drives a run through whichever prefix of `research → verify → plan → write` has
+an adapter registered — today that is research and verify. It owns run/stage state,
+strict stage order, per-run budgets, bounded stage-level retries, and replay from a
+retained artifact boundary; it knows nothing about how a stage does its work.
+
+```python
+from periplus.agents import build_research_agent, build_verification_agent
+from periplus.models import Stage
+from periplus.orchestrator import (
+    Hermes,
+    ResearchStageAdapter,
+    RunBudget,
+    StageRetryPolicy,
+    SystemClock,
+    VerificationStageAdapter,
+)
+
+clock = SystemClock()
+hermes = Hermes(
+    adapters={
+        Stage.RESEARCH: ResearchStageAdapter(build_research_agent()),
+        Stage.VERIFY: VerificationStageAdapter(build_verification_agent(), clock=clock),
+    },
+    retry=StageRetryPolicy(max_attempts=2, backoff_seconds=1.0),
+    budget=RunBudget(max_tokens=200_000, max_wall_clock_seconds=600),
+    clock=clock,
+)
+run = await hermes.start(brief)
+```
+
+A stage that produces no usable output — no claims, or a claim nobody verified — fails
+its gate rather than passing silently downstream; a stage adapter that raises a
+transient error is retried up to its bound, one that raises a logical failure is not. A
+budget is a ceiling for the whole run: it is checked the moment a stage attempt finishes
+(so a stage that pushes cumulative usage over the ceiling fails outright, even if it is
+the last configured stage) and again before the next attempt starts, but never mid-call,
+so exhausting it stops downstream work without cutting off a stage already running.
+Every attempt's artifact is retained, whether it passed its gate or not, so
+`hermes.replay(run, from_stage=Stage.VERIFY)` re-verifies from the retained research
+artifact without calling Explorer again — and continues drawing down the same run-wide
+budget rather than getting a fresh one, so replaying cannot be used to bypass a ceiling
+one stage at a time. Tests use scripted stage adapters and `FakeClock`; nothing here
+needs a network or a real sleep.
+
 ## Reading the open web
 
 With `PERIPLUS_TAVILY_API_KEY` set in `server/.env`:
@@ -132,7 +179,8 @@ on disk, so repeating the same query is free and offline.
 - [x] Retrieval — search seam, polite fetching, boilerplate stripping, page cache, provenance
 - [x] Research agent — bounded queries/sources, batched extraction, exact-quote evidence binding
 - [x] Verification agent — grouped evidence, strict cited IDs, deterministic freshness
-- [ ] Hermes orchestrator and run persistence
+- [x] Hermes orchestrator — stage gates, budgets, bounded retries, replay (in-memory)
+- [ ] Run persistence (PostgreSQL)
 - [ ] Planner and travel-time constraints
 - [ ] Writer and content artifacts
 - [ ] HTTP API

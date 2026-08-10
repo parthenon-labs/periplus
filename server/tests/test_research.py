@@ -254,6 +254,54 @@ class TestFailureAndBudgets:
         assert any("duplicate source" in gap for gap in outcome.bundle.gaps)
 
 
+class TestRetrievalAttemptCounters:
+    """Exact per-attempt counts must reach the outcome unchanged, even when almost
+    nothing they describe survives into the bundle — see periplus.retrieval.RetrievalResult.
+    """
+
+    async def test_outcome_carries_the_retrieval_attempt_counts_through(self):
+        quote = "The Sydney Opera House is open daily from 9am."
+        result = RetrievalResult(
+            documents=[document()],
+            queries_run=["q"],
+            failures=["blocked.example: 403"],
+            queries_attempted=4,
+            fetch_attempts=7,
+        )
+        explorer, _ = agent(
+            [extraction(quote=quote, text="The Sydney Opera House opens daily at 9am.")], result
+        )
+
+        outcome = await explorer.research(brief())
+
+        # These do not equal len(bundle.queries_run) or a count of accepted evidence
+        # URLs on purpose: failed queries and blocked/unselected fetches still counted.
+        assert outcome.queries_attempted == 4
+        assert outcome.fetch_attempts == 7
+
+    async def test_counters_survive_even_when_no_evidence_is_accepted(self):
+        result = RetrievalResult(
+            documents=[document()], queries_run=["q"], queries_attempted=3, fetch_attempts=5
+        )
+        explorer, _ = agent(
+            [extraction(quote="a plausible paraphrase", text="It opens at 9am.")], result
+        )
+
+        outcome = await explorer.research(brief())
+
+        assert outcome.bundle.claims == []
+        assert outcome.bundle.evidence == []
+        assert outcome.queries_attempted == 3
+        assert outcome.fetch_attempts == 5
+
+    async def test_counters_default_to_zero_when_the_retriever_never_reports_them(self):
+        result = RetrievalResult(queries_run=["q"], failures=["one site blocked us"])
+        explorer, _ = agent([], result)
+        outcome = await explorer.research(brief())
+        assert outcome.queries_attempted == 0
+        assert outcome.fetch_attempts == 0
+
+
 class TestDeduplication:
     async def test_same_claim_from_two_sources_is_merged_with_both_evidence(self):
         exact = "The venue opens daily at 9am."

@@ -45,6 +45,14 @@ class RetrievalResult:
     documents: list[SourceDocument] = field(default_factory=list)
     queries_run: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    #: Every query handed to the search provider, whether it succeeded or raised. Always
+    #: >= ``len(queries_run)``; the gap is exactly the queries that failed outright.
+    queries_attempted: int = 0
+    #: Every URL handed to the fetcher, whether it was fetched, blocked, too thin to use,
+    #: or simply produced no evidence a claim later cited. This is the number that must
+    #: be charged against a fetch budget — ``len(documents)`` undercounts it, and so does
+    #: counting accepted evidence URLs downstream.
+    fetch_attempts: int = 0
 
     @property
     def approx_tokens(self) -> int:
@@ -92,6 +100,7 @@ class Retriever:
         seen = seen_urls if seen_urls is not None else set()
 
         for text in queries:
+            result.queries_attempted += 1
             request = SearchQuery(
                 text=text,
                 max_results=self.results_per_query,
@@ -108,6 +117,7 @@ class Retriever:
             if not fresh:
                 continue
 
+            result.fetch_attempts += len(fresh)
             documents = await self._read(
                 fresh, query=text, subject=subject, failures=result.failures
             )

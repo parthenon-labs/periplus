@@ -81,6 +81,18 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     user_agent: str = "periplus/0.1 (+https://github.com/parthenon-labs/periplus)"
 
+    # --- Orchestration (Hermes) --------------------------------------------------------
+    # Run-wide ceilings across every stage, checked between stages rather than mid-call.
+    # ``None`` (the default) is unbounded.
+    max_run_queries: int | None = Field(default=None, ge=1)
+    max_run_fetches: int | None = Field(default=None, ge=1)
+    max_run_tokens: int | None = Field(default=None, ge=1)
+    max_run_wall_clock_seconds: float | None = Field(default=None, gt=0)
+    stage_max_attempts: int = Field(
+        default=2, ge=1, description="Bounded stage-level retries; 1 disables retry."
+    )
+    stage_retry_backoff_seconds: float = Field(default=1.0, ge=0)
+
     @property
     def has_api_key(self) -> bool:
         return bool(self.llm_api_key.get_secret_value())

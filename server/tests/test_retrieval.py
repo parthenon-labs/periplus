@@ -449,6 +449,9 @@ class TestRetriever:
         assert len(result.documents) == 1
         assert len(fetched) == 1
         assert result.queries_run == ["query one", "query two"]
+        assert result.queries_attempted == 2
+        # the URL was only ever offered to the fetcher once, on the first query
+        assert result.fetch_attempts == 1
 
     async def test_failed_fetch_falls_back_to_the_verbatim_snippet(self):
         search = ScriptedSearch({"": self.hits("https://a.com/x")})
@@ -461,6 +464,8 @@ class TestRetriever:
         assert len(result.documents) == 1
         assert result.documents[0].text == "The museum opens Monday to Saturday."
         assert any("403" in failure for failure in result.failures)
+        # the fetch was attempted and blocked; the snippet fallback must not hide that
+        assert result.fetch_attempts == 1
 
     async def test_no_fallback_when_the_snippet_is_a_summary(self):
         search = ScriptedSearch(
@@ -479,6 +484,9 @@ class TestRetriever:
         result = await self.build(search, handler).gather(["q"])
         assert result.documents == []
         assert result.failures
+        # no document and no fallback still means a fetch was attempted and must be
+        # charged; the caller cannot infer this from an empty ``documents`` list
+        assert result.fetch_attempts == 1
 
     async def test_search_failure_does_not_kill_the_run(self):
         class Broken(ScriptedSearch):
@@ -493,6 +501,8 @@ class TestRetriever:
         assert result.queries_run == ["good query"]
         assert len(result.documents) == 1
         assert any("rate limited" in failure for failure in result.failures)
+        # both queries were attempted even though one raised before returning any hits
+        assert result.queries_attempted == 2
 
     async def test_documents_are_clipped_to_the_budget(self):
         search = ScriptedSearch({"": self.hits("https://a.com/x")})
@@ -509,3 +519,6 @@ class TestRetriever:
         fetcher = Fetcher(client=transport(handler), per_host_delay=0)
         result = await Retriever(search, fetcher, min_useful_chars=400).gather(["q"])
         assert any("too little text" in failure for failure in result.failures)
+        # flagged as too thin to trust, but still a fetch attempt that must consume a
+        # fetch budget regardless of what the extractor did with the result
+        assert result.fetch_attempts == 1

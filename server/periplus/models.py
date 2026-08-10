@@ -412,6 +412,14 @@ class StageRun(Artifact):
     finished_at: datetime | None = None
     error: str | None = None
     calls: list[ModelCall] = Field(default_factory=list)
+    #: The resource usage this attempt reported spending — the exact figures charged
+    #: against a run-wide budget, kept alongside `calls` (the cost-audit trail) rather
+    #: than derived from it, since nothing guarantees the two always agree. This is what
+    #: makes a replay's budget cumulative across the whole Run rather than reset by it:
+    #: a fresh BudgetTracker can be seeded straight from a run's own history.
+    queries: int = Field(default=0, ge=0)
+    fetches: int = Field(default=0, ge=0)
+    tokens: int = Field(default=0, ge=0)
 
     @property
     def duration_ms(self) -> int | None:
