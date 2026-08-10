@@ -1,0 +1,17 @@
+[project]
+name = "periplus"
+version = "0.1.0"
+description = "A multi-agent pipeline that researches, verifies, and produces travel itineraries and content."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
