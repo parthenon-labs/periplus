@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     )
     results_per_query: int = Field(default=6, ge=1, le=20)
 
+    # --- Geo ----------------------------------------------------------------------------
+    google_maps_api_key: SecretStr = SecretStr("")
+
     # --- Fetching ----------------------------------------------------------------------
     page_cache_enabled: bool = True
     page_cache_dir: str = "data/pages"
@@ -100,6 +103,10 @@ class Settings(BaseSettings):
     @property
     def has_search_key(self) -> bool:
         return bool(self.tavily_api_key.get_secret_value())
+
+    @property
+    def has_maps_key(self) -> bool:
+        return bool(self.google_maps_api_key.get_secret_value())
 
     def model_for(self, stage: Stage) -> str:
         override = {
