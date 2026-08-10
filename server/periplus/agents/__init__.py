@@ -10,14 +10,51 @@ from periplus.agents.research import (
     ResearchOutcome,
     build_research_queries,
 )
+from periplus.agents.verification import (
+    Auditor,
+    SemanticVerdict,
+    VerificationAgent,
+    VerificationBatch,
+    VerificationDecision,
+    VerificationFailure,
+    VerificationOutcome,
+    evidence_is_stale,
+)
 
 __all__ = [
+    "Auditor",
     "ResearchAgent",
     "ResearchExtraction",
     "ResearchOutcome",
+    "SemanticVerdict",
+    "VerificationAgent",
+    "VerificationBatch",
+    "VerificationDecision",
+    "VerificationFailure",
+    "VerificationOutcome",
     "build_research_agent",
     "build_research_queries",
+    "build_verification_agent",
+    "evidence_is_stale",
 ]
+
+
+def build_verification_agent(settings=None) -> VerificationAgent:
+    """Assemble Auditor with its bounded, deterministic verification policy."""
+    from periplus.config import get_settings
+    from periplus.llm import build_client, policy_for
+    from periplus.models import Stage
+
+    settings = settings or get_settings()
+    return VerificationAgent(
+        llm=build_client(settings),
+        policy=policy_for(Stage.VERIFY, settings),
+        claims_per_batch=settings.verification_claims_per_batch,
+        chars_per_batch=settings.verification_chars_per_batch,
+        max_claims=settings.max_verification_claims,
+        max_input_chars=settings.max_verification_input_chars,
+        max_evidence_per_claim=settings.max_evidence_per_claim,
+    )
 
 
 def build_research_agent(settings=None) -> ResearchAgent:

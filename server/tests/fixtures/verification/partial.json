@@ -1,0 +1,1 @@
+{"decisions":[{"claim_id":"claim-1","verdict":"partial","confidence":0.72,"reason":"The passage supports weekday opening but does not establish the claimed weekend hours.","supporting_evidence_ids":["evidence-1"],"conflicting_evidence_ids":[]}]}

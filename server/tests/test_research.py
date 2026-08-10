@@ -142,9 +142,7 @@ class TestGrounding:
 
     async def test_rejects_an_out_of_range_source_index(self):
         result = RetrievalResult(documents=[document()], queries_run=["q"])
-        explorer, _ = agent(
-            [extraction(quote="anything", text="anything", source_index=7)], result
-        )
+        explorer, _ = agent([extraction(quote="anything", text="anything", source_index=7)], result)
         outcome = await explorer.research(brief())
         assert outcome.rejected_quotes == 1
         assert any("does not exist" in gap for gap in outcome.bundle.gaps)
@@ -279,13 +277,9 @@ class TestDeduplication:
 
     async def test_evidence_per_claim_is_capped(self):
         exact = "The venue opens daily at 9am."
-        docs = [
-            document(url=f"https://{letter}.example/visit", text=exact) for letter in "abc"
-        ]
+        docs = [document(url=f"https://{letter}.example/visit", text=exact) for letter in "abc"]
         result = RetrievalResult(documents=docs, queries_run=["q"])
-        replies = [
-            extraction(quote=exact, text=exact, name="Venue") for _ in range(3)
-        ]
+        replies = [extraction(quote=exact, text=exact, name="Venue") for _ in range(3)]
         explorer, _ = agent(
             replies,
             result,

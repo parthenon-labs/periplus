@@ -1,0 +1,1 @@
+{"decisions":[{"claim_id":"claim-1","verdict":"partial","confidence":0.75,"reason":"One supplied passage supports the claim while another states an incompatible time.","supporting_evidence_ids":["evidence-1"],"conflicting_evidence_ids":["evidence-2"]}]}

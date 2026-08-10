@@ -1,0 +1,1 @@
+{"decisions":[{"claim_id":"claim-1","verdict":"contradicted","confidence":0.98,"reason":"The passage states a different opening time.","supporting_evidence_ids":[],"conflicting_evidence_ids":["evidence-1"]}]}

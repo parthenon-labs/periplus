@@ -291,9 +291,7 @@ class ResearchAgent:
                     continue
 
                 if evidence.source_kind is SourceKind.UNKNOWN:
-                    evidence.source_kind = classify_source(
-                        source.url, subject=claim_draft.subject
-                    )
+                    evidence.source_kind = classify_source(source.url, subject=claim_draft.subject)
                 evidence_key = (_source_key(str(evidence.url)), _normal(evidence.snippet))
                 evidence = evidence_by_key.setdefault(evidence_key, evidence)
                 if evidence not in outcome.bundle.evidence:

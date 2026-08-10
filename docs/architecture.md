@@ -54,9 +54,28 @@ per claim — *does this evidence support this statement?* — and returns a ver
 | `stale`       | evidence supports the claim but is older than the claim's freshness  |
 
 Claims that are volatile by nature — opening hours, prices, seasonal schedules — carry a
-freshness window. Evidence older than that window downgrades to `stale` regardless of how
-well it matches. A price verified against a 2019 page is not verified.
+freshness window in `FRESHNESS_DAYS`. Freshness is not model judgement: the model may emit
+only the four semantic verdicts (`supported`, `partial`, `contradicted`, `unsupported`).
+After strict output validation, deterministic code compares the claim kind's window with
+the dates of supporting evidence and downgrades old support to `stale`. A declared
+`published_at` date wins; for an undated page, `fetched_at` is the last date Periplus
+actually observed the passage and is the conservative fallback. Passing an explicit
+`as_of` date makes replay deterministic.
 
+Auditor receives only `Claim` and `Evidence` objects. It resolves each claim's evidence
+IDs locally, groups all resolved passages beside that claim, and may batch several groups
+into one call. It never receives the brief, places, search queries, Explorer rationale or
+confidence. A batch response is accepted only when it has exactly one decision per input
+claim, no duplicate or unexpected claim IDs, and every supporting/conflicting evidence ID
+belongs to that claim's supplied group. IDs cannot appear in both lists, and verdict/list
+combinations must agree. A fabricated ID invalidates the whole batch rather than being
+silently removed.
+
+No cited evidence means `no_evidence` with no model call. Claim count, evidence per claim,
+claims per batch, characters per batch and whole-stage input characters all have hard
+ceilings. Oversized inputs, dangling/duplicate IDs, invalid model output and model errors
+remain explicit `VerificationFailure` records; their claims remain unverified. When the
+outcome is reattached to a `ResearchBundle`, those failures are also preserved as gaps.
 Nothing is silently dropped. A `contradicted` opening time is shown to the traveller as a
 contradiction, because knowing a fact is disputed is more useful than not seeing it.
 
@@ -151,4 +170,6 @@ and retrieving prior evidence for a claim before spending a fetch on new sources
 One seam, OpenAI-compatible, configured per stage. Research and writing want a broad,
 fluent model; verification wants a cheap, literal one that does not embellish. Making the
 model a per-stage setting rather than a global keeps that trade-off adjustable without
-touching agent code.
+touching agent code. Tests never instantiate a live provider: checked-in responses run
+through `ScriptedClient`, so verification is reproducible, offline and free of search or
+fetch dependencies.

@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     research_documents_per_batch: int = Field(default=6, ge=1)
     research_chars_per_batch: int = Field(default=60_000, ge=1)
     max_evidence_per_claim: int = Field(default=5, ge=1)
+    verification_claims_per_batch: int = Field(default=8, ge=1)
+    verification_chars_per_batch: int = Field(default=30_000, ge=1)
+    max_verification_claims: int = Field(default=100, ge=1)
+    max_verification_input_chars: int = Field(default=120_000, ge=1)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     user_agent: str = "periplus/0.1 (+https://github.com/parthenon-labs/periplus)"
 

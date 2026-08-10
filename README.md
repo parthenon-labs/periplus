@@ -6,9 +6,9 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 > observations recorded leg by leg, in the order you meet them. That is exactly what a
 > good itinerary is: a sourced, executable document. Hence the name.
 
-> **Status: early construction.** The domain model, model/retrieval seams and research
-> agent exist; verification, orchestration, API and web client are still being built in
-> the open. Nothing here is production ready yet, and the roadmap below marks what exists.
+> **Status: early construction.** The domain model, model/retrieval seams, Explorer and
+> Auditor exist; orchestration, API and web client are still being built in the open.
+> Nothing here is production ready yet, and the roadmap below marks what exists.
 
 ## Why this exists
 
@@ -19,7 +19,8 @@ reads perfectly and fails on the ground.
 Periplus treats that as the core engineering problem rather than a disclaimer. Every
 factual assertion in an itinerary is a **claim**, every claim carries the **evidence** it
 came from, and no claim reaches the traveller without passing a separate verification
-stage that can mark it *supported*, *contradicted*, *unsupported* or *stale*.
+stage that can mark it *supported*, *partial*, *contradicted*, *unsupported*,
+*no evidence* or *stale*.
 
 The output is not "a plan the model believes". It is a plan you can audit, line by line.
 
@@ -76,7 +77,39 @@ python3.11 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 No API key needed, and no network: `ScriptedClient` stands in for the model provider and
 `ScriptedSearch` for the search provider, with page fetches served by an in-process HTTP
-transport.
+transport. Auditor verdict tests use checked-in JSON fixtures under
+`server/tests/fixtures/verification`.
+
+## Verifying claims offline
+
+Auditor's public input is deliberately narrow: a list of `Claim` objects and a list of
+`Evidence` objects. It never receives the trip brief, places, search queries or Explorer
+reasoning. Each model input groups a claim with all of its cited evidence; output is
+rejected if a supporting or conflicting ID was not in that group.
+
+```python
+from datetime import date
+from pathlib import Path
+
+from periplus.agents import VerificationAgent
+from periplus.llm import ScriptedClient, StagePolicy, Thinking
+
+fixture_json = Path("tests/fixtures/verification/supported.json").read_text()
+client = ScriptedClient([fixture_json])
+auditor = VerificationAgent(
+    llm=client,
+    policy=StagePolicy(model="scripted", thinking=Thinking.OFF, temperature=0.0),
+)
+outcome = await auditor.verify(claims, evidence, as_of=date(2026, 8, 10))
+verified_bundle = outcome.to_bundle(research_bundle)
+```
+
+`no_evidence` is assigned without a model call. `stale` is never accepted from model
+output: deterministic code applies `ClaimKind`'s `FRESHNESS_DAYS` window to supporting
+evidence dates, preferring `published_at` and falling back to the observed `fetched_at`.
+Batch count, per-batch characters, whole-stage claim/input totals, and evidence per claim
+all have configuration ceilings. Anything that cannot be checked remains unverified and
+is listed in `VerificationOutcome.failures` (and in bundle gaps when reattached).
 
 ## Reading the open web
 
@@ -98,7 +131,7 @@ on disk, so repeating the same query is free and offline.
 - [x] Model seam — structured output, repair loop, per-stage policy, cost accounting
 - [x] Retrieval — search seam, polite fetching, boilerplate stripping, page cache, provenance
 - [x] Research agent — bounded queries/sources, batched extraction, exact-quote evidence binding
-- [ ] Verification agent and verdict rules
+- [x] Verification agent — grouped evidence, strict cited IDs, deterministic freshness
 - [ ] Hermes orchestrator and run persistence
 - [ ] Planner and travel-time constraints
 - [ ] Writer and content artifacts
