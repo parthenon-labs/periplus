@@ -60,6 +60,51 @@ well it matches. A price verified against a 2019 page is not verified.
 Nothing is silently dropped. A `contradicted` opening time is shown to the traveller as a
 contradiction, because knowing a fact is disputed is more useful than not seeing it.
 
+## Retrieval
+
+The models used here do not browse, so discovery is an explicit dependency. Search sits
+behind an interface with Tavily as the default implementation; fetching, cleaning and
+provenance are ours.
+
+```
+query ──search──▶ SearchResult ──fetch──▶ FetchedPage ──extract──▶ SourceDocument
+                                                                        │
+                                                          claim quotes a passage
+                                                                        ▼
+                                                                    Evidence
+```
+
+A `SourceDocument` is a cleaned page — the reading material an agent is given. `Evidence`
+is narrower: the exact passage one claim rests on. Minting evidence goes through
+`SourceDocument.evidence_for`, which **rejects a snippet that does not occur in the page**.
+Models asked to quote their source occasionally produce a quote that is almost there: a
+tidied number, two sentences merged, a paraphrase in quotation marks. Verification would
+then be checking a claim against text the model wrote, which checks nothing.
+
+Four policies carry their weight:
+
+- **Boilerplate is stripped before a model sees anything.** Navigation, cookie banners and
+  related-article rails are the majority of a travel page and the majority of the research
+  stage's input cost. Removal is structural — drop by tag and by container name, prefer the
+  page's declared main region — rather than a readability score, because a wrong guess
+  there silently deletes the opening hours.
+- **A URL is fetched once, ever.** Pages are cached on disk by normalised URL, so the
+  fortieth run of a prompt against the same forty sources touches no network at all. This
+  is worth more than any token optimisation during prompt iteration.
+- **Fetch failures are values, not exceptions.** Sites block crawlers; a run that loses
+  four of forty pages carries on and reports the gaps, because a gap is information the
+  research stage needs. Where the search provider returned a verbatim chunk, that chunk
+  stands in as a short document rather than the source being lost.
+- **Politeness is enforced, not encouraged.** One request in flight per host, a delay
+  between consecutive hits, robots.txt honoured, a byte ceiling on responses. A crawler
+  that hammers a museum's site loses access to the museum's own opening hours — the best
+  source there is.
+
+Source kind is inferred from the domain, with one deliberate asymmetry: a domain may be
+recognised as the operator's own only if its stem *is* the venue's name or shorter.
+`museodelprado.es` is the museum; `museodelprado-tickets.org` is an agency, and a
+reseller's markup must not inherit the museum's authority.
+
 ## Orchestration: Hermes
 
 Hermes owns everything that is not a stage:

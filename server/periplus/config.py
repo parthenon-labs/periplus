@@ -45,6 +45,25 @@ class Settings(BaseSettings):
     )
     llm_retry_backoff_seconds: float = Field(default=1.0, ge=0)
 
+    # --- Search ------------------------------------------------------------------------
+    tavily_api_key: SecretStr = SecretStr("")
+    search_depth: str = Field(
+        default="basic", description="Tavily depth: ultra-fast, fast, basic, advanced."
+    )
+    results_per_query: int = Field(default=6, ge=1, le=20)
+
+    # --- Fetching ----------------------------------------------------------------------
+    page_cache_enabled: bool = True
+    page_cache_dir: str = "data/pages"
+    page_cache_ttl_days: int = Field(
+        default=30, ge=0, description="0 keeps cached pages indefinitely."
+    )
+    max_page_bytes: int = Field(default=2_000_000, gt=0)
+    per_host_delay_seconds: float = Field(default=1.0, ge=0)
+    max_concurrent_fetches: int = Field(default=6, ge=1)
+    obey_robots: bool = True
+    max_chars_per_document: int = Field(default=24_000, gt=0)
+
     # --- Storage ----------------------------------------------------------------------
     database_url: str = "postgresql://localhost/periplus"
 
@@ -57,6 +76,10 @@ class Settings(BaseSettings):
     @property
     def has_api_key(self) -> bool:
         return bool(self.llm_api_key.get_secret_value())
+
+    @property
+    def has_search_key(self) -> bool:
+        return bool(self.tavily_api_key.get_secret_value())
 
     def model_for(self, stage: Stage) -> str:
         override = {

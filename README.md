@@ -63,6 +63,9 @@ is DeepSeek — `deepseek-v4-pro` where the work is synthesis, `deepseek-v4-flas
 thinking disabled for verification. Pointing the whole pipeline at another provider is a
 base URL and a model name.
 
+Search is a separate seam, since these models do not browse. Tavily is the default;
+fetching, cleaning and provenance are handled here rather than delegated.
+
 ## Running the tests
 
 ```bash
@@ -71,15 +74,30 @@ python3.11 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest
 ```
 
-No API key needed: `ScriptedClient` stands in for the provider anywhere a client is
-accepted, so agent behaviour is testable offline.
+No API key needed, and no network: `ScriptedClient` stands in for the model provider and
+`ScriptedSearch` for the search provider, with page fetches served by an in-process HTTP
+transport.
+
+## Reading the open web
+
+With `PERIPLUS_TAVILY_API_KEY` set in `server/.env`:
+
+```bash
+cd server
+.venv/bin/python -m periplus.probe "Museo del Prado opening hours" --subject "Museo del Prado"
+```
+
+Prints each source it found with its kind, declared date and size in tokens, plus the
+pages it failed to read and why. Costs one search credit; every page it fetches is cached
+on disk, so repeating the same query is free and offline.
 
 ## Roadmap
 
 - [x] Domain model — briefs, claims, evidence, verdicts, itineraries, artifacts
 - [x] Architecture and stage contracts
 - [x] Model seam — structured output, repair loop, per-stage policy, cost accounting
-- [ ] Research agent and web sources
+- [x] Retrieval — search seam, polite fetching, boilerplate stripping, page cache, provenance
+- [ ] Research agent — queries, claim extraction, evidence binding
 - [ ] Verification agent and verdict rules
 - [ ] Hermes orchestrator and run persistence
 - [ ] Planner and travel-time constraints
@@ -92,8 +110,8 @@ accepted, so agent behaviour is testable offline.
 ```
 docs/            architecture and design notes
 server/          Python backend
-  periplus/      library: models, agents, orchestrator, sources, api
-  cli.py         local entry point
+  periplus/      library: models, llm, retrieval, agents, orchestrator, api
+    probe.py     command-line retrieval probe
 web/             React client (not yet started)
 ```
 
