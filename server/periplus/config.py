@@ -1,0 +1,73 @@
+"""Runtime configuration.
+
+Everything the pipeline needs from the environment lands here, including the per-stage
+model policy. Research and writing want a capable model that reasons; verification wants
+a cheap, literal one that does not embellish. Keeping that as configuration rather than
+agent code means the trade-off can be retuned without touching a prompt.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic import Field, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from periplus.models import Stage
+
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_STRONG_MODEL = "deepseek-v4-pro"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="PERIPLUS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # --- Model access -----------------------------------------------------------------
+    llm_base_url: str = DEEPSEEK_BASE_URL
+    llm_api_key: SecretStr = SecretStr("")
+    llm_model: str = DEFAULT_MODEL
+    """Fallback model for any stage without an explicit override."""
+
+    llm_model_research: str | None = DEFAULT_STRONG_MODEL
+    llm_model_verify: str | None = None
+    llm_model_plan: str | None = DEFAULT_STRONG_MODEL
+    llm_model_write: str | None = DEFAULT_STRONG_MODEL
+
+    llm_timeout_seconds: float = Field(default=120.0, gt=0)
+    llm_max_attempts: int = Field(
+        default=3, ge=1, description="Total attempts per structured call, repairs included."
+    )
+    llm_retry_backoff_seconds: float = Field(default=1.0, ge=0)
+
+    # --- Storage ----------------------------------------------------------------------
+    database_url: str = "postgresql://localhost/periplus"
+
+    # --- Run limits -------------------------------------------------------------------
+    max_research_queries: int = Field(default=12, ge=1)
+    max_evidence_per_claim: int = Field(default=5, ge=1)
+    request_timeout_seconds: float = Field(default=30.0, gt=0)
+    user_agent: str = "periplus/0.1 (+https://github.com/parthenon-labs/periplus)"
+
+    @property
+    def has_api_key(self) -> bool:
+        return bool(self.llm_api_key.get_secret_value())
+
+    def model_for(self, stage: Stage) -> str:
+        override = {
+            Stage.RESEARCH: self.llm_model_research,
+            Stage.VERIFY: self.llm_model_verify,
+            Stage.PLAN: self.llm_model_plan,
+            Stage.WRITE: self.llm_model_write,
+        }[stage]
+        return override or self.llm_model
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()

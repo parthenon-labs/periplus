@@ -58,11 +58,27 @@ access to the researcher's reasoning — only to the claim and the raw evidence.
 
 Python 3.11 · FastAPI · Pydantic v2 · PostgreSQL + pgvector · React 19 · Vite · Tailwind
 
+Models are reached through one OpenAI-compatible seam, configured per stage. The default
+is DeepSeek — `deepseek-v4-pro` where the work is synthesis, `deepseek-v4-flash` with
+thinking disabled for verification. Pointing the whole pipeline at another provider is a
+base URL and a model name.
+
+## Running the tests
+
+```bash
+cd server
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
+
+No API key needed: `ScriptedClient` stands in for the provider anywhere a client is
+accepted, so agent behaviour is testable offline.
+
 ## Roadmap
 
 - [x] Domain model — briefs, claims, evidence, verdicts, itineraries, artifacts
 - [x] Architecture and stage contracts
-- [ ] Model seam and configuration
+- [x] Model seam — structured output, repair loop, per-stage policy, cost accounting
 - [ ] Research agent and web sources
 - [ ] Verification agent and verdict rules
 - [ ] Hermes orchestrator and run persistence

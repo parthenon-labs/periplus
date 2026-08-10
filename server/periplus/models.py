@@ -177,9 +177,7 @@ class Verdict(StrEnum):
 
 
 #: Verdicts a claim may hold and still be scheduled into an itinerary.
-USABLE_VERDICTS: frozenset[Verdict] = frozenset(
-    {Verdict.SUPPORTED, Verdict.PARTIAL, Verdict.STALE}
-)
+USABLE_VERDICTS: frozenset[Verdict] = frozenset({Verdict.SUPPORTED, Verdict.PARTIAL, Verdict.STALE})
 
 
 class Check(Artifact):
@@ -333,9 +331,7 @@ class ItineraryItem(Artifact):
     title: str
     place_id: str | None = None
     notes: str | None = None
-    claim_ids: list[str] = Field(
-        default_factory=list, description="Every fact this item rests on."
-    )
+    claim_ids: list[str] = Field(default_factory=list, description="Every fact this item rests on.")
     transfer_in: Transfer | None = None
     booking_required: bool = False
     estimated_cost: float | None = Field(default=None, ge=0)
