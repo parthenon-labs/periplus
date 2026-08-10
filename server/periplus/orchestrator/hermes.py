@@ -39,9 +39,9 @@ __all__ = [
     "TransientStageError",
 ]
 
-#: The pipeline's full, fixed order. Hermes only ever runs a contiguous prefix of it —
-#: today that means research, verify and plan; write joins the same list once Chronicler
-#: exists, with no change to the state machine.
+#: The pipeline's full, fixed order. Hermes only ever runs a contiguous prefix of it — a
+#: run may stop after plan and skip Chronicler, but it may never run write without having
+#: run everything before it.
 STAGE_ORDER: tuple[Stage, ...] = (Stage.RESEARCH, Stage.VERIFY, Stage.PLAN, Stage.WRITE)
 
 

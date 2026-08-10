@@ -4,6 +4,13 @@ Stages depend only on the model and retrieval seams. Provider clients, persisten
 end-to-end run state belong outside this package; Hermes will wire those pieces together.
 """
 
+from periplus.agents.content import (
+    Chronicler,
+    ContentAgent,
+    ContentDraft,
+    ContentOutcome,
+    PieceDraft,
+)
 from periplus.agents.navigation import (
     ItemDraft,
     ItineraryDraft,
@@ -29,10 +36,15 @@ from periplus.agents.verification import (
 
 __all__ = [
     "Auditor",
+    "Chronicler",
+    "ContentAgent",
+    "ContentDraft",
+    "ContentOutcome",
     "ItemDraft",
     "ItineraryDraft",
     "NavigationAgent",
     "NavigationOutcome",
+    "PieceDraft",
     "ResearchAgent",
     "ResearchExtraction",
     "ResearchOutcome",
@@ -42,12 +54,30 @@ __all__ = [
     "VerificationDecision",
     "VerificationFailure",
     "VerificationOutcome",
+    "build_content_agent",
     "build_navigation_agent",
     "build_research_agent",
     "build_research_queries",
     "build_verification_agent",
     "evidence_is_stale",
 ]
+
+
+def build_content_agent(settings=None) -> ContentAgent:
+    """Assemble Chronicler with its bounded, deterministic writing policy."""
+    from periplus.config import get_settings
+    from periplus.llm import build_client, policy_for
+    from periplus.models import Stage
+
+    settings = settings or get_settings()
+    return ContentAgent(
+        llm=build_client(settings),
+        policy=policy_for(Stage.WRITE, settings),
+        max_items=settings.max_content_items,
+        max_claims=settings.max_content_claims,
+        max_pieces=settings.max_content_pieces,
+        max_piece_chars=settings.max_content_piece_chars,
+    )
 
 
 def build_verification_agent(settings=None) -> VerificationAgent:

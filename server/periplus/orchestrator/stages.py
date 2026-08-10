@@ -15,11 +15,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from periplus.agents.content import ContentAgent
 from periplus.agents.navigation import NavigationAgent
 from periplus.agents.research import ResearchAgent
 from periplus.agents.verification import VerificationAgent
 from periplus.models import (
     Artifact,
+    ContentSet,
     Itinerary,
     ModelCall,
     ResearchBundle,
@@ -79,12 +81,19 @@ def planning_gate(itinerary: Itinerary) -> str | None:
     return None
 
 
+def content_gate(content: ContentSet) -> str | None:
+    if not content.pieces:
+        return "writing produced no content pieces"
+    return None
+
+
 #: The default gate per stage. Passing ``gates={Stage.X: None}`` to :class:`Hermes`
 #: disables one explicitly rather than silently.
 DEFAULT_GATES: dict[Stage, StageGate | None] = {
     Stage.RESEARCH: research_gate,
     Stage.VERIFY: verification_gate,
     Stage.PLAN: planning_gate,
+    Stage.WRITE: content_gate,
 }
 
 
@@ -149,3 +158,21 @@ class NavigationStageAdapter:
         outcome = await self._agent.plan(self._brief, stage_input)
         usage = ResourceUsage(tokens=outcome.total_tokens)
         return StageResult(artifact=outcome.itinerary, usage=usage, calls=list(outcome.calls))
+
+
+class ContentStageAdapter:
+    """Wraps :class:`ContentAgent`. Needs the trip brief alongside the itinerary, for the
+    same reason :class:`NavigationStageAdapter` does — Chronicler's prompt wants the
+    traveller's language and interests, not just the previous stage's artifact.
+    """
+
+    stage = Stage.WRITE
+
+    def __init__(self, agent: ContentAgent, *, brief: TripBrief) -> None:
+        self._agent = agent
+        self._brief = brief
+
+    async def run(self, stage_input: Itinerary) -> StageResult:
+        outcome = await self._agent.write(self._brief, stage_input)
+        usage = ResourceUsage(tokens=outcome.total_tokens)
+        return StageResult(artifact=outcome.content, usage=usage, calls=list(outcome.calls))

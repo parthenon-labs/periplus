@@ -31,12 +31,14 @@ from periplus.orchestrator.hermes import (
 )
 from periplus.orchestrator.stages import (
     DEFAULT_GATES,
+    ContentStageAdapter,
     NavigationStageAdapter,
     ResearchStageAdapter,
     StageAdapter,
     StageGate,
     StageResult,
     VerificationStageAdapter,
+    content_gate,
     planning_gate,
     research_gate,
     verification_gate,
@@ -48,6 +50,7 @@ __all__ = [
     "ArtifactStore",
     "BudgetTracker",
     "Clock",
+    "ContentStageAdapter",
     "FakeClock",
     "Hermes",
     "HermesError",
@@ -69,6 +72,7 @@ __all__ = [
     "TransientStageError",
     "VerificationStageAdapter",
     "build_hermes",
+    "content_gate",
     "planning_gate",
     "research_gate",
     "verification_gate",
@@ -79,12 +83,15 @@ def build_hermes(settings=None, *, brief=None) -> Hermes:
     """Assemble Hermes with live stage adapters from runtime settings.
 
     Research and verify need nothing beyond ``settings`` and are wired unconditionally.
-    Navigator's contract needs the trip brief too — see
-    :class:`~periplus.orchestrator.stages.NavigationStageAdapter` — so plan only joins the
-    pipeline when a ``brief`` is supplied, i.e. call this once per brief when a plan is
-    wanted, the same way :class:`Hermes` itself already runs one ``Run`` per brief.
+    Navigator and Chronicler's contracts need the trip brief too — see
+    :class:`~periplus.orchestrator.stages.NavigationStageAdapter` and
+    :class:`~periplus.orchestrator.stages.ContentStageAdapter` — so plan and write only
+    join the pipeline when a ``brief`` is supplied, i.e. call this once per brief when a
+    plan is wanted, the same way :class:`Hermes` itself already runs one ``Run`` per
+    brief.
     """
     from periplus.agents import (
+        build_content_agent,
         build_navigation_agent,
         build_research_agent,
         build_verification_agent,
@@ -99,6 +106,7 @@ def build_hermes(settings=None, *, brief=None) -> Hermes:
     }
     if brief is not None:
         adapters[Stage.PLAN] = NavigationStageAdapter(build_navigation_agent(settings), brief=brief)
+        adapters[Stage.WRITE] = ContentStageAdapter(build_content_agent(settings), brief=brief)
     return Hermes(
         adapters=adapters,
         retry=StageRetryPolicy(

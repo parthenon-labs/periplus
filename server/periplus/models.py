@@ -372,6 +372,10 @@ class ContentPiece(Artifact):
     title: str | None = None
     body: str
     word_count: int | None = Field(default=None, ge=0)
+    claim_ids: list[str] = Field(
+        default_factory=list,
+        description="Verified claims this piece states as fact, when it makes one.",
+    )
 
 
 class ContentSet(Artifact):
@@ -379,6 +383,10 @@ class ContentSet(Artifact):
 
     itinerary_id: str
     pieces: list[ContentPiece] = Field(default_factory=list)
+    caveats: list[str] = Field(
+        default_factory=list,
+        description="Drafted pieces that were dropped, and why — never silently discarded.",
+    )
     created_at: datetime = Field(default_factory=_now)
 
 

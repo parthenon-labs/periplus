@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     max_verification_input_chars: int = Field(default=120_000, ge=1)
     max_navigation_places: int = Field(default=40, ge=1)
     max_navigation_claims: int = Field(default=200, ge=1)
+    max_content_items: int = Field(default=60, ge=1)
+    max_content_claims: int = Field(default=200, ge=1)
+    max_content_pieces: int = Field(default=12, ge=1)
+    max_content_piece_chars: int = Field(default=8_000, ge=1)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     user_agent: str = "periplus/0.1 (+https://github.com/parthenon-labs/periplus)"
 
