@@ -9,10 +9,13 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from periplus.config import Settings
+from periplus.geo import build_distance_provider
 from periplus.geo.distance import (
     DistanceError,
     GoogleMapsDistance,
     NoRouteFound,
+    OpenRouteServiceDistance,
     Route,
     RouteQuery,
     ScriptedDistance,
@@ -120,6 +123,88 @@ class TestGoogleMapsDistance:
             GoogleMapsDistance("")
 
 
+def ors_response(*, meters: float = 850, seconds: float = 620) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "features": [
+                {"properties": {"summary": {"distance": meters, "duration": seconds}}},
+            ]
+        },
+    )
+
+
+class TestOpenRouteServiceDistance:
+    def client(self, handler) -> OpenRouteServiceDistance:
+        return OpenRouteServiceDistance("ors-test", client=transport(handler))
+
+    async def test_maps_the_response(self):
+        seen: dict = {}
+
+        def handler(request):
+            seen["url"] = str(request.url)
+            seen["params"] = dict(request.url.params)
+            seen["headers"] = dict(request.headers)
+            return ors_response(meters=850, seconds=620)
+
+        route = await self.client(handler).route(RouteQuery(PRADO, RETIRO, TravelMode.WALKING))
+        assert route.meters == 850
+        assert route.seconds == 620
+        assert route.mode == TravelMode.WALKING
+        assert "/foot-walking" in seen["url"]
+        # ORS takes lon,lat — the reverse of Google's lat,lon.
+        assert seen["params"]["start"] == "-3.6921,40.4138"
+        assert seen["params"]["end"] == "-3.6844,40.4153"
+        assert seen["headers"]["authorization"] == "ors-test"
+
+    async def test_fractional_meters_round(self):
+        def handler(request):
+            return ors_response(meters=849.6, seconds=619.5)
+
+        route = await self.client(handler).route(RouteQuery(PRADO, RETIRO, TravelMode.WALKING))
+        assert route.meters == 850
+        assert route.seconds == 620
+
+    async def test_transit_has_no_profile(self):
+        with pytest.raises(DistanceError):
+            await self.client(lambda request: ors_response()).route(
+                RouteQuery(PRADO, RETIRO, TravelMode.TRANSIT)
+            )
+
+    async def test_not_found_is_no_route(self):
+        def handler(request):
+            return httpx.Response(404, json={"error": {"message": "point not routable"}})
+
+        with pytest.raises(NoRouteFound):
+            await self.client(handler).route(RouteQuery(PRADO, RETIRO))
+
+    async def test_rate_limited_is_transient(self):
+        def handler(request):
+            return httpx.Response(429, text="slow down")
+
+        with pytest.raises(TransientDistanceError):
+            await self.client(handler).route(RouteQuery(PRADO, RETIRO))
+
+    async def test_server_error_is_transient(self):
+        def handler(request):
+            return httpx.Response(503, text="try later")
+
+        with pytest.raises(TransientDistanceError):
+            await self.client(handler).route(RouteQuery(PRADO, RETIRO))
+
+    async def test_bad_request_is_permanent(self):
+        def handler(request):
+            return httpx.Response(400, json={"error": {"message": "invalid coordinates"}})
+
+        with pytest.raises(DistanceError) as caught:
+            await self.client(handler).route(RouteQuery(PRADO, RETIRO))
+        assert not isinstance(caught.value, TransientDistanceError)
+
+    def test_missing_key_fails_loudly(self):
+        with pytest.raises(DistanceError):
+            OpenRouteServiceDistance("")
+
+
 class TestScriptedDistance:
     async def test_registered_route_is_returned(self):
         provider = ScriptedDistance()
@@ -136,6 +221,20 @@ class TestScriptedDistance:
         nearby = GeoPoint(lat=PRADO.lat + 1e-7, lon=PRADO.lon)
         route = await provider.route(RouteQuery(nearby, RETIRO, TravelMode.WALKING))
         assert route.meters == 850
+
+
+class TestBuildDistanceProvider:
+    """No network: only checks which provider class gets assembled."""
+
+    def test_prefers_ors_when_both_keys_are_set(self):
+        settings = Settings(ors_api_key="ors-key", google_maps_api_key="maps-key")
+        provider = build_distance_provider(settings)
+        assert isinstance(provider, OpenRouteServiceDistance)
+
+    def test_falls_back_to_google_maps_without_an_ors_key(self):
+        settings = Settings(ors_api_key="", google_maps_api_key="maps-key")
+        provider = build_distance_provider(settings)
+        assert isinstance(provider, GoogleMapsDistance)
 
     async def test_unregistered_query_falls_back_to_default(self):
         default = Route(1000, 900, TravelMode.DRIVING)

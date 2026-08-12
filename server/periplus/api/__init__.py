@@ -1,13 +1,17 @@
 """HTTP surface over Hermes.
 
-Thin on purpose: every artifact the pipeline produces is already an inspectable Pydantic
-model, so this layer adds no shape of its own beyond a run id and a status. Import
-:func:`~periplus.api.app.create_app` for production wiring, or
-:class:`~periplus.api.runs.RunStore` directly to drive Hermes from something other than
-HTTP (a CLI, a test).
+The API keeps polling summaries separate from the full terminal Run so a browser can
+observe real stage progress without repeatedly downloading evidence and content artifacts.
 """
 
 from periplus.api.runs import RunEntry, RunNotFound, RunStore
-from periplus.api.schemas import RunView
+from periplus.api.schemas import RunResultView, RunSummary, TripBriefCreate
 
-__all__ = ["RunEntry", "RunNotFound", "RunStore", "RunView"]
+__all__ = [
+    "RunEntry",
+    "RunNotFound",
+    "RunResultView",
+    "RunStore",
+    "RunSummary",
+    "TripBriefCreate",
+]

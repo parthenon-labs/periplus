@@ -7,9 +7,9 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 > good itinerary is: a sourced, executable document. Hence the name.
 
 > **Status: early construction.** The full pipeline exists — Explorer, Auditor,
-> Navigator, Chronicler and Hermes — plus a first HTTP layer over it; run persistence
-> and a web client are still being built in the open. Nothing here is production ready
-> yet, and the roadmap below marks what exists.
+> Navigator, Chronicler and Hermes — plus an HTTP layer over it with finished runs
+> persisted to Postgres; a web client is still being built in the open. Nothing here
+> is production ready yet, and the roadmap below marks what exists.
 
 ## Why this exists
 
@@ -179,11 +179,12 @@ on disk, so repeating the same query is free and offline.
 - [x] Retrieval — search seam, polite fetching, boilerplate stripping, page cache, provenance
 - [x] Research agent — bounded queries/sources, batched extraction, exact-quote evidence binding
 - [x] Verification agent — grouped evidence, strict cited IDs, deterministic freshness
-- [x] Hermes orchestrator — stage gates, budgets, bounded retries, replay (in-memory)
-- [x] Planner — Navigator, day-by-day scheduling grounded in real travel times (Google Maps seam)
+- [x] Hermes orchestrator — stage gates, budgets, bounded retries, replay
+- [x] Planner — Navigator, day-by-day scheduling grounded in real travel times (Google Maps or OpenRouteService seam)
 - [x] Writer — Chronicler, content pieces grounded in verified claims
-- [x] HTTP API — submit a trip, poll the run (in-process only, no persistence yet)
-- [ ] Run persistence (PostgreSQL)
+- [x] HTTP API — submit a trip, poll the run
+- [x] Run persistence — finished runs survive a restart (Postgres)
+- [x] Crash recovery — a run still mid-flight when the process dies is resumed on the next process's startup from the last stage that passed its gate (`PostgresArtifactStore` + `RunStore._resume_crashed_runs`); budget accounting resets on a resumed run rather than carrying over exactly, since the crashed attempt's per-stage usage figures were not themselves persisted — a known approximation, not a correctness gap
 - [ ] Web client
 
 ## Repository layout

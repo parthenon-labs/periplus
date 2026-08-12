@@ -99,17 +99,18 @@ def build_verification_agent(settings=None) -> VerificationAgent:
 
 
 def build_navigation_agent(settings=None) -> NavigationAgent:
-    """Assemble Navigator with a live distance provider, if a Maps key is configured."""
+    """Assemble Navigator with a live distance provider, if a geo key is configured."""
     from periplus.config import get_settings
     from periplus.geo import build_distance_provider
     from periplus.llm import build_client, policy_for
     from periplus.models import Stage
 
     settings = settings or get_settings()
+    has_distance_provider = settings.has_ors_key or settings.has_maps_key
     return NavigationAgent(
         llm=build_client(settings),
         policy=policy_for(Stage.PLAN, settings),
-        distance=build_distance_provider(settings) if settings.has_maps_key else None,
+        distance=build_distance_provider(settings) if has_distance_provider else None,
         max_places=settings.max_navigation_places,
         max_claims=settings.max_navigation_claims,
     )

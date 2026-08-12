@@ -1,10 +1,11 @@
 """The distance seam.
 
 Navigator needs real travel times between stops, not a model's guess at how far the
-museum is from the hotel. Google Maps Distance Matrix is the default provider — it sits
-behind an interface for the same reason search and the model do: this pipeline should not
-care which provider answers "how long to walk from A to B", only that the answer is a
-grounded number it can put in an :class:`~periplus.models.Transfer`.
+museum is from the hotel. Google Maps Distance Matrix is one provider — it sits behind
+an interface for the same reason search and the model do: this pipeline should not care
+which provider answers "how long to walk from A to B", only that the answer is a
+grounded number it can put in an :class:`~periplus.models.Transfer`. OpenRouteService is
+the second implementation: no billing account required, only an email-verified key.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import httpx
 from periplus.models import GeoPoint
 
 DISTANCE_MATRIX_ENDPOINT = "https://maps.googleapis.com/maps/api/distancematrix/json"
+ORS_DIRECTIONS_ENDPOINT = "https://api.openrouteservice.org/v2/directions"
 
 
 class TravelMode(StrEnum):
@@ -151,6 +153,85 @@ class GoogleMapsDistance(DistanceProvider):
             await self._client.aclose()
 
 
+ORS_PROFILE_BY_MODE: dict[TravelMode, str] = {
+    TravelMode.WALKING: "foot-walking",
+    TravelMode.DRIVING: "driving-car",
+    TravelMode.BICYCLING: "cycling-regular",
+    # ORS has no public-transit profile; callers get a clear, permanent error rather
+    # than a silently wrong driving/walking estimate standing in for a bus route.
+}
+
+
+class OpenRouteServiceDistance(DistanceProvider):
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        client: httpx.AsyncClient | None = None,
+        timeout_seconds: float = 30.0,
+        endpoint: str = ORS_DIRECTIONS_ENDPOINT,
+    ) -> None:
+        if not api_key:
+            raise DistanceError("no OpenRouteService API key configured; set PERIPLUS_ORS_API_KEY")
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
+
+    async def route(self, query: RouteQuery) -> Route:
+        profile = ORS_PROFILE_BY_MODE.get(query.mode)
+        if profile is None:
+            raise DistanceError(f"OpenRouteService has no profile for {query.mode.value}")
+
+        params: dict[str, Any] = {
+            "start": _lonlat(query.origin),
+            "end": _lonlat(query.destination),
+        }
+        headers = {"Authorization": self.api_key}
+
+        try:
+            response = await self._client.get(
+                f"{self.endpoint}/{profile}", params=params, headers=headers
+            )
+        except httpx.HTTPError as exc:
+            raise TransientDistanceError(f"{type(exc).__name__}: {exc}") from exc
+
+        self._raise_for_status(response)
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise DistanceError(f"unparseable OpenRouteService response: {exc}") from exc
+
+        return self._to_route(body, query.mode)
+
+    @staticmethod
+    def _raise_for_status(response: httpx.Response) -> None:
+        if response.status_code == 200:
+            return
+        detail = response.text[:200]
+        if response.status_code == 404:
+            raise NoRouteFound(f"HTTP 404: {detail}")
+        if response.status_code == 429 or response.status_code >= 500:
+            raise TransientDistanceError(f"HTTP {response.status_code}: {detail}")
+        raise DistanceError(f"HTTP {response.status_code}: {detail}")
+
+    @staticmethod
+    def _to_route(body: dict[str, Any], mode: TravelMode) -> Route:
+        try:
+            summary = body["features"][0]["properties"]["summary"]
+        except (IndexError, KeyError) as exc:
+            raise DistanceError("OpenRouteService response missing a route summary") from exc
+
+        return Route(
+            meters=round(summary["distance"]), seconds=round(summary["duration"]), mode=mode
+        )
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+
 class ScriptedDistance(DistanceProvider):
     """Canned routes for tests and offline development.
 
@@ -185,6 +266,11 @@ def _latlon(point: GeoPoint) -> str:
     return f"{point.lat},{point.lon}"
 
 
+def _lonlat(point: GeoPoint) -> str:
+    """ORS takes coordinates as lon,lat — the GeoJSON order, reversed from Google's."""
+    return f"{point.lon},{point.lat}"
+
+
 def _key(origin: GeoPoint, destination: GeoPoint, mode: TravelMode) -> tuple:
     return (
         round(origin.lat, 5),
@@ -197,10 +283,13 @@ def _key(origin: GeoPoint, destination: GeoPoint, mode: TravelMode) -> tuple:
 
 __all__ = [
     "DISTANCE_MATRIX_ENDPOINT",
+    "ORS_DIRECTIONS_ENDPOINT",
+    "ORS_PROFILE_BY_MODE",
     "DistanceError",
     "DistanceProvider",
     "GoogleMapsDistance",
     "NoRouteFound",
+    "OpenRouteServiceDistance",
     "Route",
     "RouteQuery",
     "ScriptedDistance",

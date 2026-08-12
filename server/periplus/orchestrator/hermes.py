@@ -219,13 +219,26 @@ class Hermes:
         self.artifacts = artifacts or InMemoryArtifactStore()
 
     async def start(
-        self, brief: TripBrief, *, is_cancelled: Callable[[], bool] | None = None
+        self,
+        brief: TripBrief,
+        *,
+        run_id: str | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+        on_run_created: Callable[[Run], None] | None = None,
     ) -> Run:
         """Begin a brand-new run from the trip brief, executing every configured stage
         in order until one is gated off, fails, or the pipeline completes.
+
+        ``run_id`` overrides the generated :attr:`Run.id`. Omit it and one is generated
+        as before; a caller that also persists this run under its own id (see
+        :mod:`periplus.api.runs`) passes it explicitly, so the artifact store's keys and
+        the persistence row share one identity. ``on_run_created`` receives that same
+        mutable Run once, after it enters ``running`` and before the first stage begins.
         """
-        run = Run(brief=brief)
+        run = Run(brief=brief) if run_id is None else Run(id=run_id, brief=brief)
         _transition_run(run, RunStatus.RUNNING, clock=self.clock)
+        if on_run_created is not None:
+            on_run_created(run)
         tracker = BudgetTracker(self.budget, self.clock)
         await self._drive(
             run,

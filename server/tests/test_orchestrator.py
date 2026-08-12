@@ -15,6 +15,7 @@ backoff timing itself is under test.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, date, datetime
 
@@ -340,6 +341,31 @@ class TestHappyPath:
         assert run.status is RunStatus.SUCCEEDED
         assert run.verified is None
         assert len(run.stages) == 1
+
+    async def test_exposes_the_live_run_once_before_the_first_stage_completes(self):
+        stage_started = asyncio.Event()
+        release_stage = asyncio.Event()
+        observed: list[Run] = []
+
+        class BlockingResearch:
+            stage = Stage.RESEARCH
+
+            async def run(self, stage_input: object) -> StageResult:
+                stage_started.set()
+                await release_stage.wait()
+                return result(bundle())
+
+        hermes = Hermes(adapters={Stage.RESEARCH: BlockingResearch()})
+        task = asyncio.create_task(hermes.start(brief(), on_run_created=observed.append))
+
+        await stage_started.wait()
+        assert len(observed) == 1
+        assert observed[0].status is RunStatus.RUNNING
+        assert observed[0].stages[-1].status is RunStatus.RUNNING
+
+        release_stage.set()
+        completed = await task
+        assert observed == [completed]
 
 
 class TestGates:

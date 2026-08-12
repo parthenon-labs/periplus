@@ -31,3 +31,6 @@ runs/
 .DS_Store
 .idea/
 .vscode/
+
+# Local tool output
+.impeccable/

@@ -53,7 +53,10 @@ class Settings(BaseSettings):
     results_per_query: int = Field(default=6, ge=1, le=20)
 
     # --- Geo ----------------------------------------------------------------------------
+    # OpenRouteService is preferred when both are set: no billing account, only an
+    # email-verified key. Google Maps remains supported for whoever already has a key.
     google_maps_api_key: SecretStr = SecretStr("")
+    ors_api_key: SecretStr = SecretStr("")
 
     # --- Fetching ----------------------------------------------------------------------
     page_cache_enabled: bool = True
@@ -113,6 +116,10 @@ class Settings(BaseSettings):
     @property
     def has_maps_key(self) -> bool:
         return bool(self.google_maps_api_key.get_secret_value())
+
+    @property
+    def has_ors_key(self) -> bool:
+        return bool(self.ors_api_key.get_secret_value())
 
     def model_for(self, stage: Stage) -> str:
         override = {

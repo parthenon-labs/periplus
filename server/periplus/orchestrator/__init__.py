@@ -79,7 +79,7 @@ __all__ = [
 ]
 
 
-def build_hermes(settings=None, *, brief=None) -> Hermes:
+def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None = None) -> Hermes:
     """Assemble Hermes with live stage adapters from runtime settings.
 
     Research and verify need nothing beyond ``settings`` and are wired unconditionally.
@@ -89,6 +89,13 @@ def build_hermes(settings=None, *, brief=None) -> Hermes:
     join the pipeline when a ``brief`` is supplied, i.e. call this once per brief when a
     plan is wanted, the same way :class:`Hermes` itself already runs one ``Run`` per
     brief.
+
+    ``artifacts`` defaults to a fresh, process-local
+    :class:`~periplus.orchestrator.artifacts.InMemoryArtifactStore` when omitted, same as
+    :class:`Hermes` itself. Production wiring passes one shared
+    :class:`~periplus.storage.PostgresArtifactStore` instance across every call instead,
+    so a run started by one call to this function can be resumed — after a restart, by a
+    different one — against the same retained artifacts.
     """
     from periplus.agents import (
         build_content_agent,
@@ -120,4 +127,5 @@ def build_hermes(settings=None, *, brief=None) -> Hermes:
             max_wall_clock_seconds=settings.max_run_wall_clock_seconds,
         ),
         clock=clock,
+        artifacts=artifacts,
     )

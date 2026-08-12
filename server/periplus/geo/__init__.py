@@ -10,10 +10,12 @@ from __future__ import annotations
 from periplus.config import Settings, get_settings
 from periplus.geo.distance import (
     DISTANCE_MATRIX_ENDPOINT,
+    ORS_DIRECTIONS_ENDPOINT,
     DistanceError,
     DistanceProvider,
     GoogleMapsDistance,
     NoRouteFound,
+    OpenRouteServiceDistance,
     Route,
     RouteQuery,
     ScriptedDistance,
@@ -23,10 +25,12 @@ from periplus.geo.distance import (
 
 __all__ = [
     "DISTANCE_MATRIX_ENDPOINT",
+    "ORS_DIRECTIONS_ENDPOINT",
     "DistanceError",
     "DistanceProvider",
     "GoogleMapsDistance",
     "NoRouteFound",
+    "OpenRouteServiceDistance",
     "Route",
     "RouteQuery",
     "ScriptedDistance",
@@ -37,7 +41,13 @@ __all__ = [
 
 
 def build_distance_provider(settings: Settings | None = None) -> DistanceProvider:
+    """Prefer OpenRouteService when configured — it needs no billing account, only a key."""
     settings = settings or get_settings()
+    if settings.has_ors_key:
+        return OpenRouteServiceDistance(
+            settings.ors_api_key.get_secret_value(),
+            timeout_seconds=settings.request_timeout_seconds,
+        )
     return GoogleMapsDistance(
         settings.google_maps_api_key.get_secret_value(),
         timeout_seconds=settings.request_timeout_seconds,

@@ -1,0 +1,39 @@
+import { QueryClientProvider } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { describe, expect, test } from 'vitest'
+import App from './App'
+import { createQueryClient } from './app/queryClient'
+
+function renderApp(initialEntries: string[]) {
+  const queryClient = createQueryClient()
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>
+        <App />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+describe('App routing', () => {
+  test('renders the trip input page at /', () => {
+    renderApp(['/'])
+    expect(screen.getByRole('button', { name: /chart this trip/i })).toBeInTheDocument()
+  })
+
+  test('redirects an unmatched path back to the trip input page', () => {
+    renderApp(['/somewhere/unexpected'])
+    expect(screen.getByRole('button', { name: /chart this trip/i })).toBeInTheDocument()
+  })
+
+  test('renders the run progress page for /runs/:runId', async () => {
+    renderApp(['/runs/run-running-research'])
+    expect(await screen.findByRole('heading', { name: 'Lisbon' })).toBeInTheDocument()
+  })
+
+  test('renders the run result page for /runs/:runId/result', async () => {
+    renderApp(['/runs/run-succeeded/result'])
+    expect(await screen.findByRole('heading', { name: 'Lisbon' })).toBeInTheDocument()
+  })
+})
