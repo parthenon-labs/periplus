@@ -154,6 +154,14 @@ class ContentAgent:
             max_piece_chars=self.max_piece_chars,
             caveats=content.caveats,
         )
+        # Carry over exactly the claims a kept piece actually cites — the same
+        # self-contained-artifact discipline VerifiedBundle and Itinerary already follow
+        # — so a later stage (Illustrator) can look up claim text without needing the
+        # itinerary two stage boundaries back.
+        cited_claim_ids = dict.fromkeys(
+            claim_id for piece in content.pieces for claim_id in piece.claim_ids
+        )
+        content.claims = [claims_by_id[claim_id] for claim_id in cited_claim_ids]
         return outcome
 
     async def aclose(self) -> None:

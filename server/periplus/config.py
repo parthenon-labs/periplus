@@ -58,6 +58,28 @@ class Settings(BaseSettings):
     google_maps_api_key: SecretStr = SecretStr("")
     ors_api_key: SecretStr = SecretStr("")
 
+    # --- Illustration --------------------------------------------------------------------
+    # Agnes is preferred when both are set: an OpenAI-compatible Images API that returns
+    # a URL instead of base64 (see periplus.media.images), no different in kind from the
+    # geo package's OpenRouteService-over-Google-Maps preference above.
+    openai_api_key: SecretStr = SecretStr("")
+    agnes_api_key: SecretStr = SecretStr("")
+    illustration_image_model: str = "gpt-image-1"
+    agnes_image_model: str = "agnes-image-2.1-flash"
+    # Agnes's own troubleshooting docs put generation at "a few seconds to tens of
+    # seconds" depending on prompt/size/load, and recommend a 60-360s client timeout —
+    # a different animal from OpenAI's typically-faster response, so it gets its own
+    # field rather than reusing request_timeout_seconds (30s default), the same way
+    # llm_timeout_seconds above already gets its own field instead of sharing it.
+    agnes_image_timeout_seconds: float = Field(default=120.0, gt=0)
+    illustration_image_size: str = "1024x1024"
+    illustration_image_quality: str = Field(
+        default="auto", description="One of low, medium, high, auto."
+    )
+    max_illustrations: int = Field(
+        default=6, ge=1, description="Ceiling on distinct subjects illustrated per run."
+    )
+
     # --- Fetching ----------------------------------------------------------------------
     page_cache_enabled: bool = True
     page_cache_dir: str = "data/pages"
@@ -122,6 +144,14 @@ class Settings(BaseSettings):
     @property
     def has_ors_key(self) -> bool:
         return bool(self.ors_api_key.get_secret_value())
+
+    @property
+    def has_openai_image_key(self) -> bool:
+        return bool(self.openai_api_key.get_secret_value())
+
+    @property
+    def has_agnes_image_key(self) -> bool:
+        return bool(self.agnes_api_key.get_secret_value())
 
     def model_for(self, stage: Stage) -> str:
         override = {

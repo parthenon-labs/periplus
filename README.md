@@ -8,8 +8,9 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 
 > **Status: early construction.** The full pipeline exists — Explorer, Auditor,
 > Navigator, Chronicler and Hermes — plus an HTTP layer over it with finished runs
-> persisted to Postgres; a web client is still being built in the open. Nothing here
-> is production ready yet, and the roadmap below marks what exists.
+> persisted to Postgres, and a React web client to submit a trip and read the result.
+> An Illustrator stage (grounded images per verified claim) is in progress on a feature
+> branch. Nothing here is production ready yet, and the roadmap below marks what exists.
 
 ## Why this exists
 
@@ -185,7 +186,8 @@ on disk, so repeating the same query is free and offline.
 - [x] HTTP API — submit a trip, poll the run
 - [x] Run persistence — finished runs survive a restart (Postgres)
 - [x] Crash recovery — a run still mid-flight when the process dies is resumed on the next process's startup from the last stage that passed its gate (`PostgresArtifactStore` + `RunStore._resume_crashed_runs`); budget accounting resets on a resumed run rather than carrying over exactly, since the crashed attempt's per-stage usage figures were not themselves persisted — a known approximation, not a correctness gap
-- [ ] Web client
+- [x] Web client — submit a trip, poll progress, read the result (React 19 + Vite + Tailwind)
+- [ ] Illustrator — a stage after Chronicler that generates a grounded image per verified claim (Agnes or OpenAI Images behind one seam); implemented on `feature/illustration-stage`, not yet merged to `main`
 
 ## Repository layout
 
@@ -194,7 +196,7 @@ docs/            architecture and design notes
 server/          Python backend
   periplus/      library: models, llm, retrieval, agents, orchestrator, api
     probe.py     command-line retrieval probe
-web/             React client (not yet started)
+web/             React client — submit a trip, poll progress, read the result
 ```
 
 ## Licence

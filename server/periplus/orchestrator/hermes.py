@@ -42,7 +42,13 @@ __all__ = [
 #: The pipeline's full, fixed order. Hermes only ever runs a contiguous prefix of it — a
 #: run may stop after plan and skip Chronicler, but it may never run write without having
 #: run everything before it.
-STAGE_ORDER: tuple[Stage, ...] = (Stage.RESEARCH, Stage.VERIFY, Stage.PLAN, Stage.WRITE)
+STAGE_ORDER: tuple[Stage, ...] = (
+    Stage.RESEARCH,
+    Stage.VERIFY,
+    Stage.PLAN,
+    Stage.WRITE,
+    Stage.ILLUSTRATE,
+)
 
 
 class HermesError(Exception):
@@ -173,6 +179,8 @@ def _attach(run: Run, stage: Stage, artifact: object) -> None:
         run.itinerary = artifact
     elif stage is Stage.WRITE:
         run.content = artifact
+    elif stage is Stage.ILLUSTRATE:
+        run.illustrated = artifact
 
 
 def _never_cancelled() -> bool:

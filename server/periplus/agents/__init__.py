@@ -11,6 +11,7 @@ from periplus.agents.content import (
     ContentOutcome,
     PieceDraft,
 )
+from periplus.agents.illustration import IllustrationAgent, IllustrationOutcome
 from periplus.agents.navigation import (
     ItemDraft,
     ItineraryDraft,
@@ -40,6 +41,8 @@ __all__ = [
     "ContentAgent",
     "ContentDraft",
     "ContentOutcome",
+    "IllustrationAgent",
+    "IllustrationOutcome",
     "ItemDraft",
     "ItineraryDraft",
     "NavigationAgent",
@@ -55,12 +58,31 @@ __all__ = [
     "VerificationFailure",
     "VerificationOutcome",
     "build_content_agent",
+    "build_illustration_agent",
     "build_navigation_agent",
     "build_research_agent",
     "build_research_queries",
     "build_verification_agent",
     "evidence_is_stale",
 ]
+
+
+def build_illustration_agent(settings=None) -> IllustrationAgent:
+    """Assemble Illustrator with a live image provider, if an Agnes or OpenAI key is
+    configured — Agnes is preferred when both are set, per
+    :func:`periplus.media.build_image_provider`.
+    """
+    from periplus.config import get_settings
+    from periplus.media import build_image_provider
+
+    settings = settings or get_settings()
+    has_image_key = settings.has_agnes_image_key or settings.has_openai_image_key
+    return IllustrationAgent(
+        provider=build_image_provider(settings) if has_image_key else None,
+        max_images=settings.max_illustrations,
+        size=settings.illustration_image_size,
+        quality=settings.illustration_image_quality,
+    )
 
 
 def build_content_agent(settings=None) -> ContentAgent:

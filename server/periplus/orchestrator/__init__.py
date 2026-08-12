@@ -32,6 +32,7 @@ from periplus.orchestrator.hermes import (
 from periplus.orchestrator.stages import (
     DEFAULT_GATES,
     ContentStageAdapter,
+    IllustrationStageAdapter,
     NavigationStageAdapter,
     ResearchStageAdapter,
     StageAdapter,
@@ -54,6 +55,7 @@ __all__ = [
     "FakeClock",
     "Hermes",
     "HermesError",
+    "IllustrationStageAdapter",
     "InMemoryArtifactStore",
     "InvalidTransition",
     "NavigationStageAdapter",
@@ -88,7 +90,9 @@ def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None =
     :class:`~periplus.orchestrator.stages.ContentStageAdapter` — so plan and write only
     join the pipeline when a ``brief`` is supplied, i.e. call this once per brief when a
     plan is wanted, the same way :class:`Hermes` itself already runs one ``Run`` per
-    brief.
+    brief. Illustrate joins alongside write for the same reason — it is the stage
+    immediately after Chronicler — even though
+    :class:`~periplus.orchestrator.stages.IllustrationStageAdapter` itself needs no brief.
 
     ``artifacts`` defaults to a fresh, process-local
     :class:`~periplus.orchestrator.artifacts.InMemoryArtifactStore` when omitted, same as
@@ -99,6 +103,7 @@ def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None =
     """
     from periplus.agents import (
         build_content_agent,
+        build_illustration_agent,
         build_navigation_agent,
         build_research_agent,
         build_verification_agent,
@@ -114,6 +119,7 @@ def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None =
     if brief is not None:
         adapters[Stage.PLAN] = NavigationStageAdapter(build_navigation_agent(settings), brief=brief)
         adapters[Stage.WRITE] = ContentStageAdapter(build_content_agent(settings), brief=brief)
+        adapters[Stage.ILLUSTRATE] = IllustrationStageAdapter(build_illustration_agent(settings))
     return Hermes(
         adapters=adapters,
         retry=StageRetryPolicy(

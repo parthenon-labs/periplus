@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from periplus.agents.content import ContentAgent
+from periplus.agents.illustration import IllustrationAgent
 from periplus.agents.navigation import NavigationAgent
 from periplus.agents.research import ResearchAgent
 from periplus.agents.verification import VerificationAgent
@@ -89,6 +90,12 @@ def content_gate(content: ContentSet) -> str | None:
 
 #: The default gate per stage. Passing ``gates={Stage.X: None}`` to :class:`Hermes`
 #: disables one explicitly rather than silently.
+#:
+#: Stage.ILLUSTRATE has no entry, and therefore no gate at all: zero images is a valid,
+#: intentional artifact whenever no image provider is configured or nothing in the
+#: content set was illustratable — see IllustrationAgent's graceful-degrade contract.
+#: Gating it the way content_gate gates an empty ContentSet would turn that deliberate
+#: degrade into a failed run.
 DEFAULT_GATES: dict[Stage, StageGate | None] = {
     Stage.RESEARCH: research_gate,
     Stage.VERIFY: verification_gate,
@@ -176,3 +183,27 @@ class ContentStageAdapter:
         outcome = await self._agent.write(self._brief, stage_input)
         usage = ResourceUsage(tokens=outcome.total_tokens)
         return StageResult(artifact=outcome.content, usage=usage, calls=list(outcome.calls))
+
+
+class IllustrationStageAdapter:
+    """Wraps :class:`IllustrationAgent` behind the narrow :class:`StageAdapter` protocol.
+
+    Unlike :class:`NavigationStageAdapter` and :class:`ContentStageAdapter`, this adapter
+    needs nothing bound in at construction time: Illustrator's prompts come from the
+    claims Chronicler already carried onto its :class:`~periplus.models.ContentSet` (see
+    ``ContentSet.claims``), not from the brief or the itinerary two stage boundaries back.
+    """
+
+    stage = Stage.ILLUSTRATE
+
+    def __init__(self, agent: IllustrationAgent) -> None:
+        self._agent = agent
+
+    async def run(self, stage_input: ContentSet) -> StageResult:
+        outcome = await self._agent.illustrate(stage_input)
+        # Image generation is not metered in any of ResourceUsage's dimensions today —
+        # it is neither an LLM call (tokens), a search query, nor a page fetch — so
+        # nothing is charged against the run budget here. A future cost dimension for
+        # image calls would be the place to close that gap, not a misuse of the three
+        # that already exist.
+        return StageResult(artifact=outcome.illustrated, calls=list(outcome.calls))

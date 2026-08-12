@@ -21,13 +21,17 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+from periplus.agents.illustration import IllustrationAgent
 from periplus.agents.research import ResearchAgent
 from periplus.agents.verification import VerificationAgent
 from periplus.llm import ScriptedClient, StagePolicy, Thinking
+from periplus.media.images import GeneratedImage, ScriptedImages
 from periplus.models import (
     Check,
     Claim,
     ClaimKind,
+    ContentPiece,
+    ContentSet,
     Evidence,
     ModelCall,
     ResearchBundle,
@@ -42,6 +46,7 @@ from periplus.orchestrator import (
     STAGE_ORDER,
     FakeClock,
     Hermes,
+    IllustrationStageAdapter,
     InMemoryArtifactStore,
     InvalidTransition,
     ReplayError,
@@ -308,7 +313,13 @@ class TestStageConfiguration:
         )
 
     def test_stage_order_constant_matches_the_documented_pipeline(self):
-        assert STAGE_ORDER == (Stage.RESEARCH, Stage.VERIFY, Stage.PLAN, Stage.WRITE)
+        assert STAGE_ORDER == (
+            Stage.RESEARCH,
+            Stage.VERIFY,
+            Stage.PLAN,
+            Stage.WRITE,
+            Stage.ILLUSTRATE,
+        )
 
 
 # --------------------------------------------------------------------------------------
@@ -1099,3 +1110,86 @@ class TestRealAdapters:
         assert research_run is not None and len(research_run.calls) == 1
         assert verify_run is not None and len(verify_run.calls) == 1
         assert run.total_tokens > 0
+
+
+# --------------------------------------------------------------------------------------
+# Illustrate: the stage after write, wired the same way as every other real adapter
+# --------------------------------------------------------------------------------------
+
+
+def content_set(*, pieces: list[ContentPiece], claims: list[Claim]) -> ContentSet:
+    return ContentSet(itinerary_id="itinerary-1", pieces=pieces, claims=claims)
+
+
+class TestIllustrationStageAdapter:
+    async def test_wraps_the_agent_and_charges_no_budget(self):
+        illustrated_claim = claim(
+            id="c1", subject="Harbour Museum", kind=ClaimKind.DESCRIPTION,
+            text="A striking waterfront building with a copper roof.",
+        )
+        content = content_set(
+            pieces=[ContentPiece(kind="captions", body="See the museum!", claim_ids=["c1"])],
+            claims=[illustrated_claim],
+        )
+        provider = ScriptedImages([GeneratedImage(data_base64="aGVsbG8=", model="gpt-image-1")])
+        adapter = IllustrationStageAdapter(IllustrationAgent(provider=provider))
+
+        result = await adapter.run(content)
+
+        assert len(result.artifact.images) == 1
+        assert result.artifact.images[0].claim_ids == ["c1"]
+        assert result.usage == ResourceUsage()
+        assert result.calls == []
+
+    async def test_degrades_gracefully_without_a_provider(self):
+        illustrated_claim = claim(id="c1", subject="Harbour Museum")
+        content = content_set(
+            pieces=[ContentPiece(kind="captions", body="See the museum!", claim_ids=["c1"])],
+            claims=[illustrated_claim],
+        )
+        adapter = IllustrationStageAdapter(IllustrationAgent(provider=None))
+
+        result = await adapter.run(content)
+
+        assert result.artifact.images == []
+        assert any("provider configured" in c for c in result.artifact.caveats)
+
+    async def test_illustrate_joins_a_five_stage_hermes_run_and_a_missing_provider_never_fails_it(
+        self,
+    ):
+        illustrated_claim = checked_claim(id="c1", subject="Harbour Museum")
+        research_fake = FakeStage(Stage.RESEARCH, [result(bundle(claims=[illustrated_claim]))])
+        verify_fake = FakeStage(
+            Stage.VERIFY, [result(verified(claims=[illustrated_claim]))]
+        )
+        content = content_set(
+            pieces=[ContentPiece(kind="captions", body="See the museum!", claim_ids=["c1"])],
+            claims=[illustrated_claim],
+        )
+        plan_fake = FakeStage(Stage.PLAN, [result(object())])
+        write_fake = FakeStage(Stage.WRITE, [result(content)])
+        illustrate_adapter = IllustrationStageAdapter(IllustrationAgent(provider=None))
+
+        hermes = Hermes(
+            adapters={
+                Stage.RESEARCH: research_fake,
+                Stage.VERIFY: verify_fake,
+                Stage.PLAN: plan_fake,
+                Stage.WRITE: write_fake,
+                Stage.ILLUSTRATE: illustrate_adapter,
+            },
+            # PLAN's default gate inspects a real Itinerary's .days; the fake artifact
+            # here is a placeholder standing in for "some prior stage's output", not a
+            # real one — irrelevant to what this test is checking (illustrate joining a
+            # five-stage run and its own, permissive gate).
+            gates={Stage.PLAN: None},
+        )
+
+        run = await hermes.start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert run.illustrated is not None
+        assert run.illustrated.images == []
+        assert any("provider configured" in c for c in run.illustrated.caveats)
+        illustrate_run = run.stage_run(Stage.ILLUSTRATE)
+        assert illustrate_run is not None and illustrate_run.status is RunStatus.SUCCEEDED

@@ -271,6 +271,7 @@ class Stage(StrEnum):
     VERIFY = "verify"
     PLAN = "plan"
     WRITE = "write"
+    ILLUSTRATE = "illustrate"
 
 
 class ResearchBundle(Artifact):
@@ -383,11 +384,46 @@ class ContentSet(Artifact):
 
     itinerary_id: str
     pieces: list[ContentPiece] = Field(default_factory=list)
+    claims: list[Claim] = Field(
+        default_factory=list,
+        description="The verified claims actually cited by at least one piece here, kept "
+        "alongside the pieces — the same way VerifiedBundle and Itinerary carry their own "
+        "claims — so a later stage (Illustrator) can look up what a piece states as fact "
+        "without needing the itinerary two stages back.",
+    )
     caveats: list[str] = Field(
         default_factory=list,
         description="Drafted pieces that were dropped, and why — never silently discarded.",
     )
     created_at: datetime = Field(default_factory=_now)
+
+
+class Illustration(Artifact):
+    """One generated image, bound to the verified claim(s) it depicts.
+
+    Never a model's free-associated guess at what a destination looks like: the prompt
+    that produced it is templated straight from claim text already sitting in the
+    ContentSet it was illustrated from — see IllustrationAgent.
+    """
+
+    id: str = Field(default_factory=_uuid)
+    subject: str = Field(description="What the image depicts, e.g. 'Museo del Prado'.")
+    claim_ids: list[str] = Field(
+        default_factory=list, description="Verified claims this image illustrates."
+    )
+    prompt: str = Field(description="The templated prompt sent to the image provider.")
+    data_base64: str | None = Field(
+        default=None, description="The generated image, base64-encoded."
+    )
+    mime_type: str = "image/png"
+    model: str | None = None
+    created_at: datetime = Field(default_factory=_now)
+
+
+class IllustratedContentSet(ContentSet):
+    """Output of the Illustrator: the same content set, with images bound to claims."""
+
+    images: list[Illustration] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------------------
@@ -453,6 +489,7 @@ class Run(Artifact):
     verified: VerifiedBundle | None = None
     itinerary: Itinerary | None = None
     content: ContentSet | None = None
+    illustrated: IllustratedContentSet | None = None
     created_at: datetime = Field(default_factory=_now)
     finished_at: datetime | None = None
 
