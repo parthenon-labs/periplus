@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     verification_claims_per_batch: int = Field(default=8, ge=1)
     verification_chars_per_batch: int = Field(default=30_000, ge=1)
     max_verification_claims: int = Field(default=100, ge=1)
+    """Also the ceiling Explorer trims claims to (`build_research_agent`), so research
+    never hands verification more than its all-or-nothing gate can pass in one run."""
     max_verification_input_chars: int = Field(default=120_000, ge=1)
     max_navigation_places: int = Field(default=40, ge=1)
     max_navigation_claims: int = Field(default=200, ge=1)

@@ -170,6 +170,7 @@ class ResearchAgent:
         max_total_documents: int = 24,
         max_total_document_chars: int = 120_000,
         max_evidence_per_claim: int = 5,
+        max_claims: int = 100,
     ) -> None:
         self.llm = llm
         self.retriever = retriever
@@ -180,6 +181,13 @@ class ResearchAgent:
         self.max_total_documents = max(1, max_total_documents)
         self.max_total_document_chars = max(1, max_total_document_chars)
         self.max_evidence_per_claim = max(1, max_evidence_per_claim)
+        #: Kept equal to the Auditor's ``max_claims`` by the caller. Verification fails
+        #: a claim outright — no ``Check`` at all — once its own ceiling is reached, and
+        #: the all-or-nothing gate in ``verification_gate`` then rejects the whole run
+        #: over a single unverified claim. Trimming here, not there, is what keeps
+        #: "how many claims can this run afford" a single number instead of two that can
+        #: drift apart.
+        self.max_claims = max(1, max_claims)
 
     async def research(self, brief: TripBrief) -> ResearchOutcome:
         planned_queries = build_research_queries(brief, limit=None)
@@ -235,6 +243,8 @@ class ResearchAgent:
             await self._extract_batch(brief, batch, outcome)
 
         _deduplicate_bundle(bundle, max_evidence_per_claim=self.max_evidence_per_claim)
+        if len(bundle.claims) > self.max_claims:
+            _trim_claims(bundle, max_claims=self.max_claims)
         if not bundle.claims:
             bundle.gaps.append("No claims survived exact-quote grounding.")
         return outcome
@@ -459,6 +469,32 @@ def _deduplicate_bundle(bundle: ResearchBundle, *, max_evidence_per_claim: int) 
 
     used_evidence = {item for claim in claims for item in claim.evidence_ids}
     bundle.evidence = [item for item in bundle.evidence if item.id in used_evidence]
+
+
+def _trim_claims(bundle: ResearchBundle, *, max_claims: int) -> None:
+    """Cap claim output at what verification can afford to check.
+
+    Kept claims are the first ``max_claims`` in extraction order, so the same input
+    always drops the same tail rather than a batch-order-dependent set. Places left with
+    no surviving claim and evidence no surviving claim cites are pruned to match.
+    """
+    kept, dropped = bundle.claims[:max_claims], bundle.claims[max_claims:]
+    bundle.claims = kept
+    dropped_ids = {claim.id for claim in dropped}
+
+    places: list[Place] = []
+    for place in bundle.places:
+        place.claim_ids = [claim_id for claim_id in place.claim_ids if claim_id not in dropped_ids]
+        if place.claim_ids:
+            places.append(place)
+    bundle.places = places
+
+    used_evidence = {item for claim in kept for item in claim.evidence_ids}
+    bundle.evidence = [item for item in bundle.evidence if item.id in used_evidence]
+
+    bundle.gaps.append(
+        f"Research claim limit of {max_claims} was reached; {len(dropped)} claim(s) were dropped."
+    )
 
 
 def _clean(value: str) -> str:

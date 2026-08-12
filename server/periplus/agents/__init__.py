@@ -134,4 +134,8 @@ def build_research_agent(settings=None) -> ResearchAgent:
         max_total_documents=settings.max_research_documents,
         max_total_document_chars=settings.max_research_document_chars,
         max_evidence_per_claim=settings.max_evidence_per_claim,
+        # Same ceiling Verification enforces (`build_verification_agent`), on purpose:
+        # trimming here is what stops research ever handing verification more claims
+        # than its gate can pass as a whole.
+        max_claims=settings.max_verification_claims,
     )

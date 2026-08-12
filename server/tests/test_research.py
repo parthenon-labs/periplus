@@ -338,3 +338,43 @@ class TestDeduplication:
         assert len(outcome.bundle.claims[0].evidence_ids) == 2
         assert len(outcome.bundle.evidence) == 2
         assert any("Evidence limit reached" in gap for gap in outcome.bundle.gaps)
+
+
+class TestClaimCeiling:
+    """Verification fails the whole run over a single claim it never got to check
+    (``verification_gate`` in ``periplus.orchestrator.stages``). Explorer must never hand
+    it more claims than it can process, so the ceiling has to be enforced here too.
+    """
+
+    async def test_claims_are_capped_at_the_verification_ceiling(self):
+        names = ["One", "Two", "Three"]
+        docs = [
+            document(url=f"https://{name.lower()}.example/visit", text=f"{name} opens at 9am.")
+            for name in names
+        ]
+        result = RetrievalResult(documents=docs, queries_run=["q"])
+        replies = [
+            extraction(quote=f"{name} opens at 9am.", text=f"{name} opens at 9am.", name=name)
+            for name in names
+        ]
+        explorer, _ = agent(replies, result, max_documents_per_batch=1, max_claims=2)
+        outcome = await explorer.research(brief())
+
+        assert len(outcome.bundle.claims) == 2
+        assert [place.name for place in outcome.bundle.places] == ["One", "Two"]
+        assert len(outcome.bundle.evidence) == 2
+        assert any(
+            "Research claim limit of 2 was reached; 1 claim(s) were dropped." in gap
+            for gap in outcome.bundle.gaps
+        )
+
+    async def test_a_run_within_the_ceiling_is_left_untouched(self):
+        exact = "The venue opens daily at 9am."
+        result = RetrievalResult(documents=[document(text=exact)], queries_run=["q"])
+        explorer, _ = agent(
+            [extraction(quote=exact, text=exact, name="Venue")], result, max_claims=5
+        )
+        outcome = await explorer.research(brief())
+
+        assert len(outcome.bundle.claims) == 1
+        assert not any("claim limit" in gap for gap in outcome.bundle.gaps)
