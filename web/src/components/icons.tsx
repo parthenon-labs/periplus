@@ -119,3 +119,59 @@ export function TransferIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="m12.5 5.5-5 4.5 5 4.5" />
+    </svg>
+  )
+}
+
+export function CalendarIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3.5" y="4.5" width="13" height="12" rx="1.6" />
+      <path d="M3.5 8.3h13" />
+      <path d="M7 3v3M13 3v3" />
+    </svg>
+  )
+}
+
+export function PeopleIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="7.3" cy="7" r="2.3" />
+      <path d="M2.8 16c.4-2.7 2.2-4.2 4.5-4.2s4.1 1.5 4.5 4.2" />
+      <circle cx="14" cy="6.4" r="1.8" />
+      <path d="M13 11.9c1.9.2 3.2 1.6 3.6 3.9" />
+    </svg>
+  )
+}
+
+export function CoinIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="10" cy="10" r="7" />
+      <path d="M10 6.3v7.4" />
+      <path d="M12.2 8c-.3-.9-1-1.4-2.2-1.4-1.3 0-2.2.6-2.2 1.6 0 2.3 4.4.9 4.4 3.2 0 1-.9 1.6-2.2 1.6-1.2 0-1.9-.5-2.2-1.4" />
+    </svg>
+  )
+}
+
+export function StarIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M10 3.2 12 8l5.2.5-4 3.4 1.2 5.1L10 14.2l-4.4 2.8 1.2-5.1-4-3.4L8 8z" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function PenIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12.6 3.9 16.1 7.4 7 16.5l-3.9.9.9-3.9z" strokeLinejoin="round" />
+      <path d="M11 5.5 14.5 9" />
+    </svg>
+  )
+}

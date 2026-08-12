@@ -1,15 +1,22 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 import { Controller, useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { AppShell } from '../components/AppShell'
+import { DatePicker } from '../components/DatePicker'
 import { Disclosure } from '../components/Disclosure'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { Stepper } from '../components/Stepper'
 import { TagInput } from '../components/TagInput'
+import { AnchorRouteIcon, CoinIcon, CompassIcon, PenIcon, PeopleIcon, StarIcon } from '../components/icons'
 import { useCreateTrip } from '../api/queries'
 import { formatNights } from '../lib/format'
 import { defaultTripBriefValues, tripBriefSchema, type TripBriefFormValues } from '../schemas/tripBrief'
+
+const prefersReducedMotion =
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 // Untouched number inputs report their default (`null`), not `''` — `Number(null)` is `0`,
 // which would silently pass a blank budget field off as "$0". Treat both as "not set".
@@ -37,6 +44,33 @@ export function TripInputPage() {
   const startDate = watch('start_date')
   const endDate = watch('end_date')
   const nights = formatNights(startDate, endDate)
+  const nightsRef = useRef<HTMLSpanElement>(null)
+  const compassRef = useRef<SVGSVGElement>(null)
+
+  // The nights count is a derived relationship, not raw input — give it a
+  // small arrival so the connection between the two dates reads as cause and
+  // effect rather than a value that was simply always there.
+  useEffect(() => {
+    if (nights === null || !nightsRef.current || prefersReducedMotion) return
+    gsap.fromTo(
+      nightsRef.current,
+      { opacity: 0, y: -3 },
+      { opacity: 1, y: 0, duration: 0.22, ease: 'power2.out' },
+    )
+  }, [nights])
+
+  useEffect(() => {
+    const node = compassRef.current
+    if (!node) return
+    if (createTrip.isPending && !prefersReducedMotion) {
+      const tween = gsap.to(node, { rotate: 360, duration: 1.1, repeat: -1, ease: 'none', transformOrigin: '50% 50%' })
+      return () => {
+        tween.kill()
+        gsap.set(node, { rotate: 0 })
+      }
+    }
+    return undefined
+  }, [createTrip.isPending])
 
   const onSubmit = handleSubmit(async (values) => {
     try {
@@ -68,24 +102,32 @@ export function TripInputPage() {
           </label>
 
           <div className="mt-8 flex flex-wrap items-end gap-6">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">Depart</span>
-              <input
-                type="date"
-                {...register('start_date')}
-                className="tabular rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink outline-none focus:border-bronze-deep"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">Return</span>
-              <input
-                type="date"
-                {...register('end_date')}
-                className="tabular rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink outline-none focus:border-bronze-deep"
-              />
-            </label>
+            <Controller
+              control={control}
+              name="start_date"
+              render={({ field }) => (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="start_date" className="text-sm font-medium text-ink">
+                    Depart
+                  </label>
+                  <DatePicker id="start_date" label="Departure date" value={field.value} onChange={field.onChange} />
+                </div>
+              )}
+            />
+            <Controller
+              control={control}
+              name="end_date"
+              render={({ field }) => (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="end_date" className="text-sm font-medium text-ink">
+                    Return
+                  </label>
+                  <DatePicker id="end_date" label="Return date" value={field.value} onChange={field.onChange} />
+                </div>
+              )}
+            />
             {nights !== null && nights > 0 ? (
-              <span className="chart-tick tabular pb-2.5">
+              <span ref={nightsRef} className="chart-tick tabular pb-2.5">
                 {nights} night{nights === 1 ? '' : 's'}
               </span>
             ) : null}
@@ -95,7 +137,7 @@ export function TripInputPage() {
         </section>
 
         <section className="rounded-2xl border border-line px-6 sm:px-8">
-          <Disclosure title="Who's travelling" subtitle="Party size and any access notes">
+          <Disclosure title="Who's travelling" subtitle="Party size and any access notes" icon={PeopleIcon}>
             <div className="flex flex-col gap-3">
               <Controller
                 control={control}
@@ -119,7 +161,7 @@ export function TripInputPage() {
             </div>
           </Disclosure>
 
-          <Disclosure title="Budget" subtitle="Optional — leave blank to skip">
+          <Disclosure title="Budget" subtitle="Optional — leave blank to skip" icon={CoinIcon}>
             <div className="flex flex-wrap gap-4">
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-ink">Currency</span>
@@ -149,7 +191,7 @@ export function TripInputPage() {
             </div>
           </Disclosure>
 
-          <Disclosure title="Interests &amp; priorities" subtitle="What the route should lean into or steer around">
+          <Disclosure title="Interests &amp; priorities" subtitle="What the route should lean into or steer around" icon={StarIcon}>
             <div className="flex flex-col gap-4">
               <Controller
                 control={control}
@@ -180,7 +222,7 @@ export function TripInputPage() {
             </div>
           </Disclosure>
 
-          <Disclosure title="Pace &amp; base" subtitle="How full the days run, and where they start">
+          <Disclosure title="Pace &amp; base" subtitle="How full the days run, and where they start" icon={AnchorRouteIcon}>
             <div className="flex flex-col gap-4">
               <Controller
                 control={control}
@@ -209,7 +251,7 @@ export function TripInputPage() {
             </div>
           </Disclosure>
 
-          <Disclosure title="Notes" subtitle="Anything else worth telling the Explorer">
+          <Disclosure title="Notes" subtitle="Anything else worth telling the Explorer" icon={PenIcon}>
             <textarea
               {...register('notes')}
               rows={3}
@@ -228,8 +270,9 @@ export function TripInputPage() {
         <button
           type="submit"
           disabled={createTrip.isPending}
-          className="self-start rounded-full bg-bronze-deep px-7 py-3 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex w-fit items-center gap-2.5 self-start rounded-full bg-bronze-deep px-7 py-3 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-70"
         >
+          {createTrip.isPending ? <CompassIcon ref={compassRef} className="size-4" /> : null}
           {createTrip.isPending ? 'Charting…' : 'Chart this trip'}
         </button>
       </form>

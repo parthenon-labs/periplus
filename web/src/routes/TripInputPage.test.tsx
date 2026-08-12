@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 import { renderRoutes } from '../test/renderWithProviders'
@@ -11,6 +11,28 @@ function renderTripInput() {
     { path: '/', element: <TripInputPage /> },
     { path: '/runs/:runId', element: <div>run progress page</div> },
   ])
+}
+
+// The date fields are a custom calendar popover, not a native `<input
+// type="date">`: open it, page to the target month, then click the day cell
+// (identified by its full-date accessible name, same as a screen reader
+// would announce it).
+async function pickDate(user: UserEvent, triggerName: string, iso: string) {
+  await user.click(screen.getByRole('button', { name: triggerName }))
+  const target = new Date(`${iso}T00:00:00`)
+  const now = new Date()
+  const monthsForward = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth())
+  const nextMonth = screen.getByRole('button', { name: 'Next month' })
+  for (let i = 0; i < monthsForward; i++) {
+    await user.click(nextMonth)
+  }
+  const dayLabel = new Intl.DateTimeFormat('en', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(target)
+  await user.click(screen.getByRole('button', { name: dayLabel }))
 }
 
 describe('TripInputPage validation', () => {
@@ -29,8 +51,8 @@ describe('TripInputPage validation', () => {
     renderTripInput()
 
     await user.type(screen.getByPlaceholderText('Where to?'), 'Lisbon')
-    await user.type(screen.getByLabelText('Depart'), '2026-09-14')
-    await user.type(screen.getByLabelText('Return'), '2026-09-01')
+    await pickDate(user, 'Depart', '2026-09-14')
+    await pickDate(user, 'Return', '2026-09-01')
     await user.click(screen.getByRole('button', { name: /chart this trip/i }))
 
     expect(await screen.findByText('End date must be on or after the start date.')).toBeInTheDocument()
@@ -40,8 +62,8 @@ describe('TripInputPage validation', () => {
     const user = userEvent.setup()
     renderTripInput()
 
-    await user.type(screen.getByLabelText('Depart'), '2026-09-14')
-    await user.type(screen.getByLabelText('Return'), '2026-09-16')
+    await pickDate(user, 'Depart', '2026-09-14')
+    await pickDate(user, 'Return', '2026-09-16')
 
     expect(await screen.findByText('2 nights')).toBeInTheDocument()
   })
@@ -51,8 +73,8 @@ describe('TripInputPage validation', () => {
     renderTripInput()
 
     await user.type(screen.getByPlaceholderText('Where to?'), 'Lisbon')
-    await user.type(screen.getByLabelText('Depart'), '2026-09-14')
-    await user.type(screen.getByLabelText('Return'), '2026-09-16')
+    await pickDate(user, 'Depart', '2026-09-14')
+    await pickDate(user, 'Return', '2026-09-16')
     expect(screen.getByDisplayValue('Lisbon')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /chart this trip/i }))
 
@@ -82,8 +104,8 @@ describe('TripInputPage validation', () => {
     renderTripInput()
 
     await user.type(screen.getByPlaceholderText('Where to?'), 'Nowhereville')
-    await user.type(screen.getByLabelText('Depart'), '2026-09-14')
-    await user.type(screen.getByLabelText('Return'), '2026-09-16')
+    await pickDate(user, 'Depart', '2026-09-14')
+    await pickDate(user, 'Return', '2026-09-16')
     await user.click(screen.getByRole('button', { name: /chart this trip/i }))
 
     expect(await screen.findByText('Destination is not recognised.')).toBeInTheDocument()

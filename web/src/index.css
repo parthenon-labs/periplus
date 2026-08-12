@@ -115,13 +115,29 @@
 
 @layer components {
   /* A faint navigational-chart graticule: lines of latitude/longitude at a
-     fixed pitch. Used sparingly on hero/header regions, never as generic
-     page-wide decoration. */
+     fixed pitch. Reserved for the single hero card, never the header or a
+     page-wide fill. Lives on a ::before layer behind the content — masking
+     `.chart-grid` itself would fade the labels and inputs painted on top of
+     it, not just the texture — and fades toward the card's lower edge so it
+     reads as chart paper under the destination field, not graph paper. */
   .chart-grid {
+    position: relative;
+  }
+  .chart-grid::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
     background-image:
-      linear-gradient(to right, color-mix(in srgb, var(--color-ink) 6%, transparent) 1px, transparent 1px),
-      linear-gradient(to bottom, color-mix(in srgb, var(--color-ink) 6%, transparent) 1px, transparent 1px);
-    background-size: 40px 40px;
+      linear-gradient(to right, color-mix(in srgb, var(--color-ink) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--color-ink) 5%, transparent) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, black, transparent 85%);
+  }
+  .chart-grid > * {
+    position: relative;
+    z-index: 1;
   }
 
   .chart-tick {
