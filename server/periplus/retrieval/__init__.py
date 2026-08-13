@@ -13,6 +13,12 @@ from pathlib import Path
 from periplus.config import Settings, get_settings
 from periplus.retrieval.cache import CachedPage, DiskCache, NullCache, PageCache
 from periplus.retrieval.document import SnippetNotFound, SourceDocument, classify_source
+from periplus.retrieval.evidence_cache import (
+    CachedSource,
+    InMemoryEvidenceCache,
+    NullEvidenceCache,
+    SemanticEvidenceCache,
+)
 from periplus.retrieval.extract import extract, parse_date
 from periplus.retrieval.fetch import FetchedPage, Fetcher, FetchFailure, FetchResult
 from periplus.retrieval.retriever import RetrievalResult, Retriever
@@ -35,12 +41,15 @@ from periplus.retrieval.urls import (
 
 __all__ = [
     "CachedPage",
+    "CachedSource",
     "DiskCache",
     "FetchFailure",
     "FetchResult",
     "FetchedPage",
     "Fetcher",
+    "InMemoryEvidenceCache",
     "NullCache",
+    "NullEvidenceCache",
     "PageCache",
     "RetrievalResult",
     "Retriever",
@@ -49,6 +58,7 @@ __all__ = [
     "SearchProvider",
     "SearchQuery",
     "SearchResult",
+    "SemanticEvidenceCache",
     "SnippetNotFound",
     "SourceDocument",
     "TavilySearch",
@@ -97,11 +107,20 @@ def build_search(settings: Settings | None = None) -> SearchProvider:
     )
 
 
-def build_retriever(settings: Settings | None = None) -> Retriever:
+def build_retriever(
+    settings: Settings | None = None,
+    *,
+    evidence_cache: SemanticEvidenceCache | None = None,
+) -> Retriever:
+    """Assemble the live retrieval stack. ``evidence_cache`` is a caller-supplied,
+    already-opened seam — not built here — because it is shared across runs and this
+    function is called fresh per run; see :func:`periplus.storage.build_evidence_cache`
+    for where it is actually assembled."""
     settings = settings or get_settings()
     return Retriever(
         build_search(settings),
         build_fetcher(settings),
         results_per_query=settings.results_per_query,
         max_chars_per_document=settings.max_chars_per_document,
+        evidence_cache=evidence_cache,
     )

@@ -188,6 +188,7 @@ on disk, so repeating the same query is free and offline.
 - [x] Crash recovery — a run still mid-flight when the process dies is resumed on the next process's startup from the last stage that passed its gate (`PostgresArtifactStore` + `RunStore._resume_crashed_runs`); budget accounting resets on a resumed run rather than carrying over exactly, since the crashed attempt's per-stage usage figures were not themselves persisted — a known approximation, not a correctness gap
 - [x] Web client — submit a trip, poll progress, read the result (React 19 + Vite + Tailwind)
 - [x] Illustrator — a stage after Chronicler that generates a grounded image per verified claim (Agnes or OpenAI Images behind one seam)
+- [x] Semantic evidence cache — pgvector-backed reuse of near-identical sources before a fetch, local free embeddings (`sentence-transformers`), optional and gracefully off without the dependency, the model, or Postgres itself
 
 ## Repository layout
 

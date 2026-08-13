@@ -11,9 +11,11 @@ from datetime import date, timedelta
 import httpx
 import pytest
 
+from periplus.embeddings import ScriptedEmbeddings
 from periplus.models import SourceKind
 from periplus.retrieval.cache import DiskCache, NullCache
 from periplus.retrieval.document import SnippetNotFound, SourceDocument, classify_source
+from periplus.retrieval.evidence_cache import InMemoryEvidenceCache
 from periplus.retrieval.extract import extract, parse_date
 from periplus.retrieval.fetch import FetchedPage, Fetcher, FetchFailure
 from periplus.retrieval.retriever import Retriever
@@ -522,3 +524,129 @@ class TestRetriever:
         # flagged as too thin to trust, but still a fetch attempt that must consume a
         # fetch budget regardless of what the extractor did with the result
         assert result.fetch_attempts == 1
+
+
+class TestRetrieverEvidenceCache:
+    """Entirely offline: :class:`InMemoryEvidenceCache` paired with
+    :class:`ScriptedEmbeddings` exercises the real embed-then-compare similarity logic
+    with no network and no real model call — the same guarantee every other seam in
+    this module gets from ``ScriptedSearch``/``ScriptedDistance``.
+    """
+
+    def cache(self, *, threshold: float = 0.90) -> InMemoryEvidenceCache:
+        return InMemoryEvidenceCache(ScriptedEmbeddings(), similarity_threshold=threshold)
+
+    def build(self, search, handler, cache, **kwargs) -> Retriever:
+        fetcher = Fetcher(client=transport(handler), per_host_delay=0)
+        return Retriever(search, fetcher, min_useful_chars=10, evidence_cache=cache, **kwargs)
+
+    async def test_reuses_a_cached_source_instead_of_fetching(self):
+        cache = self.cache()
+        stored = SourceDocument(
+            url="https://museodelprado.es/hours",
+            text="The museum opens Monday to Saturday from ten to eight.",
+            title="Prado museum hours",
+            source_kind=SourceKind.OFFICIAL,
+        )
+        await cache.remember(stored, query="prior query")
+
+        search = ScriptedSearch(
+            {
+                "": [
+                    SearchResult(
+                        url="https://mirror.example.com/prado-hours",
+                        title="Prado museum hours",
+                        snippet="The museum opens Monday to Saturday from ten to eight.",
+                        snippet_is_verbatim=True,
+                    )
+                ]
+            }
+        )
+        fetched: list[str] = []
+
+        def handler(request):
+            if request.url.path != "/robots.txt":
+                fetched.append(str(request.url))
+            return html_response(request)
+
+        retriever = self.build(search, handler, cache)
+        result = await retriever.gather(["opening hours"])
+
+        assert fetched == []  # the network was never touched
+        assert result.evidence_reused == 1
+        assert len(result.documents) == 1
+        doc = result.documents[0]
+        assert doc.text == stored.text
+        assert doc.url == stored.url  # provenance follows the stored source, not the hit
+        assert doc.query == "opening hours"  # but the query reflects this call
+        assert doc.from_cache is True
+
+    async def test_a_cache_miss_falls_through_to_a_normal_fetch(self):
+        cache = self.cache()
+        await cache.remember(
+            SourceDocument(
+                url="https://a.com/bananas",
+                text="Bananas are a yellow tropical fruit rich in potassium.",
+                title="About bananas",
+            )
+        )
+
+        search = ScriptedSearch(
+            {"": self.hits_with(title="Prado museum hours", snippet="Ticket prices and booking.")}
+        )
+        fetched: list[str] = []
+
+        def handler(request):
+            if request.url.path != "/robots.txt":
+                fetched.append(str(request.url))
+            return html_response(request)
+
+        result = await self.build(search, handler, cache).gather(["q"])
+
+        assert fetched != []  # nothing similar was cached, so the fetch still happened
+        assert result.evidence_reused == 0
+        assert len(result.documents) == 1
+
+    async def test_a_freshly_fetched_document_is_remembered(self):
+        cache = self.cache()
+        search = ScriptedSearch({"": self.hits_with(title="A page", snippet="")})
+
+        result = await self.build(search, html_response, cache).gather(["q"])
+        assert len(result.documents) == 1
+
+        # The exact text just fetched should now be an exact-match hit in the cache.
+        doc = result.documents[0]
+        remembered = await cache.find_similar(f"{doc.title}\n{doc.text}")
+        assert remembered is not None
+        assert remembered.document.url == result.documents[0].url
+
+    async def test_a_snippet_fallback_is_not_remembered(self):
+        cache = self.cache()
+        search = ScriptedSearch(
+            {
+                "": [
+                    SearchResult(
+                        url="https://a.com/x",
+                        title="A page",
+                        snippet="The museum opens Monday to Saturday.",
+                        snippet_is_verbatim=True,
+                    )
+                ]
+            }
+        )
+
+        def handler(request):
+            return html_response(request, status=403)
+
+        result = await self.build(search, handler, cache).gather(["q"])
+        assert len(result.documents) == 1  # the snippet fallback still produced a document
+
+        remembered = await cache.find_similar("A page\nThe museum opens Monday to Saturday.")
+        assert remembered is None
+
+    def hits_with(self, *, title: str, snippet: str) -> list[SearchResult]:
+        return [
+            SearchResult(
+                url="https://a.com/x", title=title, snippet=snippet, snippet_is_verbatim=True
+            )
+        ]

@@ -95,6 +95,21 @@ class Settings(BaseSettings):
     # --- Storage ----------------------------------------------------------------------
     database_url: str = "postgresql://localhost/periplus"
 
+    # --- Evidence cache ------------------------------------------------------------
+    # A pgvector-backed semantic cache in front of retrieval: reuse a near-identical
+    # source instead of re-fetching it. Off by an unmet dependency, not just a flag —
+    # see periplus.embeddings.build_embedder. Never a paid embedding API; local
+    # sentence-transformers only, by cost constraint.
+    evidence_cache_enabled: bool = True
+    evidence_embedding_model: str = "all-MiniLM-L6-v2"
+    evidence_cache_similarity_threshold: float = Field(
+        default=0.90,
+        ge=0.0,
+        le=1.0,
+        description="Cosine similarity above which a cached source is reused instead of "
+        "re-fetched. Higher is more conservative about what counts as 'the same source'.",
+    )
+
     # --- Run limits -------------------------------------------------------------------
     max_research_queries: int = Field(default=12, ge=1)
     max_research_documents: int = Field(default=24, ge=1)

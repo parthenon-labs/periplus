@@ -81,7 +81,13 @@ __all__ = [
 ]
 
 
-def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None = None) -> Hermes:
+def build_hermes(
+    settings=None,
+    *,
+    brief=None,
+    artifacts: ArtifactStore | None = None,
+    evidence_cache=None,
+) -> Hermes:
     """Assemble Hermes with live stage adapters from runtime settings.
 
     Research and verify need nothing beyond ``settings`` and are wired unconditionally.
@@ -100,6 +106,12 @@ def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None =
     :class:`~periplus.storage.PostgresArtifactStore` instance across every call instead,
     so a run started by one call to this function can be resumed — after a restart, by a
     different one — against the same retained artifacts.
+
+    ``evidence_cache`` defaults to ``None`` — no semantic evidence cache, exactly the
+    behaviour before that layer existed. Production wiring passes one shared,
+    already-opened :class:`~periplus.storage.PostgresEvidenceCache` (built via
+    :func:`periplus.storage.build_evidence_cache`) across every call, the same way
+    ``artifacts`` already is; see :func:`periplus.api.app.create_app`.
     """
     from periplus.agents import (
         build_content_agent,
@@ -113,7 +125,9 @@ def build_hermes(settings=None, *, brief=None, artifacts: ArtifactStore | None =
     settings = settings or get_settings()
     clock = SystemClock()
     adapters = {
-        Stage.RESEARCH: ResearchStageAdapter(build_research_agent(settings)),
+        Stage.RESEARCH: ResearchStageAdapter(
+            build_research_agent(settings, evidence_cache=evidence_cache)
+        ),
         Stage.VERIFY: VerificationStageAdapter(build_verification_agent(settings), clock=clock),
     }
     if brief is not None:

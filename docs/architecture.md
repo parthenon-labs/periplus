@@ -213,13 +213,28 @@ Meta's JavaScript engine already owns that word in this ecosystem.
 ## Storage
 
 PostgreSQL for runs, briefs, claims, evidence and itineraries — implemented and load-
-bearing today (`PostgresArtifactStore`). pgvector is in the stack for a semantic
-evidence cache — deduplicating near-identical sources across queries, and retrieving
-prior evidence for a claim before spending a fetch on new sources — but that layer is
-not wired up yet: no embedding call is made anywhere in the pipeline. Every run still
-re-fetches from scratch even when a near-identical source was already pulled for an
-earlier claim. Sequenced as a cost optimisation, not a correctness gap: nothing depends
-on it, and Auditor never sees stale or duplicated evidence because of its absence.
+bearing today (`PostgresArtifactStore`). pgvector backs a semantic evidence cache in
+front of retrieval (`PostgresEvidenceCache`, `periplus/storage/postgres_evidence.py`):
+before a search hit is handed to the fetcher, its title and snippet are embedded and
+checked against previously stored sources; a high-similarity match is reused instead of
+spent on a fetch, and a freshly fetched page is remembered the same way for the next
+query or the next run to find. The two purposes this was originally scoped for —
+deduplicating near-identical sources across queries, and letting a claim reuse evidence a
+prior run already paid to fetch — collapse to that one lookup here, because Explorer
+extracts claims *from* fetched documents rather than searching for evidence a claim
+already names; see the module docstring for the full reasoning.
+
+Embeddings are local and free by a hard cost constraint: `sentence-transformers` running
+`all-MiniLM-L6-v2` on CPU (`periplus/embeddings/`), never a paid embedding API. This
+makes the whole layer genuinely optional, not just described as such — with
+`sentence-transformers` not installed, the model failing to load, or
+`PERIPLUS_EVIDENCE_CACHE_ENABLED=false`, `build_embedder` returns `None`, the cache is
+never constructed, and retrieval runs exactly as it did before this existed: every method
+on `PostgresEvidenceCache` also degrades to "nothing cached" rather than raising on a
+database error, so a Postgres hiccup costs a redundant fetch, never a failed run.
+`InMemoryEvidenceCache` (`periplus/retrieval/evidence_cache.py`) is a second, non-Postgres
+implementation of the same seam — a real option for local development without a
+database, and the offline test double paired with `ScriptedEmbeddings`.
 
 ## Model access
 

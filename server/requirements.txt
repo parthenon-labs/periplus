@@ -8,3 +8,8 @@ openai>=1.50
 psycopg[binary]>=3.2
 psycopg_pool>=3.2
 pgvector>=0.3
+# Local, free embeddings for the pgvector evidence cache (periplus.embeddings). Pulls in
+# torch and transformers — heavy (~650MB installed) but the only real implementation, by
+# a hard cost constraint: no paid embedding API. The cache degrades to disabled, not a
+# crash, if this is ever removed — see periplus.embeddings.build_embedder.
+sentence-transformers>=3.0

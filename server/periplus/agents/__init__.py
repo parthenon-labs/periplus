@@ -138,8 +138,15 @@ def build_navigation_agent(settings=None) -> NavigationAgent:
     )
 
 
-def build_research_agent(settings=None) -> ResearchAgent:
-    """Assemble Explorer's live dependencies from runtime settings."""
+def build_research_agent(settings=None, *, evidence_cache=None) -> ResearchAgent:
+    """Assemble Explorer's live dependencies from runtime settings.
+
+    ``evidence_cache`` is optional and defaults to ``None`` (no semantic cache, exactly
+    prior behaviour) — production wiring passes one shared, already-opened
+    :class:`~periplus.storage.PostgresEvidenceCache` in from
+    :func:`periplus.orchestrator.build_hermes`, the same "assembled once, passed down"
+    shape :class:`~periplus.storage.PostgresArtifactStore` already uses.
+    """
     from periplus.config import get_settings
     from periplus.llm import build_client, policy_for
     from periplus.models import Stage
@@ -148,7 +155,7 @@ def build_research_agent(settings=None) -> ResearchAgent:
     settings = settings or get_settings()
     return ResearchAgent(
         llm=build_client(settings),
-        retriever=build_retriever(settings),
+        retriever=build_retriever(settings, evidence_cache=evidence_cache),
         policy=policy_for(Stage.RESEARCH, settings),
         max_queries=settings.max_research_queries,
         max_documents_per_batch=settings.research_documents_per_batch,

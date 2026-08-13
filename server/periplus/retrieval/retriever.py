@@ -13,6 +13,15 @@ Two policies live here and are worth stating plainly:
 * **A failed fetch is not a lost source.** Search providers return verbatim chunks; when a
   page blocks us but the chunk is quoted rather than summarised, the chunk becomes a
   short document. Marked as such, so nothing pretends to be a full read.
+
+A third, optional policy joins those two when an ``evidence_cache`` is configured (see
+:mod:`periplus.retrieval.evidence_cache`): **a semantically near-identical source is read
+once, full stop** — not once per run, but once ever. Before a search hit is handed to the
+fetcher, its title and snippet are checked against the cache; a high-similarity match
+means the stored source is reused and the network fetch never happens. A freshly fetched
+page is then remembered the same way, so the next run — or the next query this run — that
+surfaces an equivalent page skips the fetch too. This is genuinely optional: with no cache
+configured, retrieval behaves exactly as it did before this existed.
 """
 
 from __future__ import annotations
@@ -20,6 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from periplus.retrieval.document import SourceDocument, classify_source
+from periplus.retrieval.evidence_cache import SemanticEvidenceCache
 from periplus.retrieval.extract import extract
 from periplus.retrieval.fetch import FetchedPage, Fetcher, FetchFailure
 from periplus.retrieval.search import SearchProvider, SearchQuery, SearchResult
@@ -53,6 +63,11 @@ class RetrievalResult:
     #: be charged against a fetch budget — ``len(documents)`` undercounts it, and so does
     #: counting accepted evidence URLs downstream.
     fetch_attempts: int = 0
+    #: Search hits satisfied from the semantic evidence cache instead of a live fetch.
+    #: Always 0 with no ``evidence_cache`` configured. Included in ``fetch_attempts``
+    #: (a reused hit was still a URL this run needed reading material for) but never
+    #: handed to ``Fetcher`` — no network request and no DiskCache lookup happen for it.
+    evidence_reused: int = 0
 
     @property
     def approx_tokens(self) -> int:
@@ -75,6 +90,7 @@ class Retriever:
         min_useful_chars: int = MIN_USEFUL_CHARS,
         exclude_domains: tuple[str, ...] = DEFAULT_EXCLUDED_DOMAINS,
         allow_snippet_fallback: bool = True,
+        evidence_cache: SemanticEvidenceCache | None = None,
     ) -> None:
         self.search = search
         self.fetcher = fetcher
@@ -83,6 +99,11 @@ class Retriever:
         self.min_useful_chars = min_useful_chars
         self.exclude_domains = exclude_domains
         self.allow_snippet_fallback = allow_snippet_fallback
+        #: Not owned by this instance — the same object typically outlives many
+        #: ``Retriever``s (one per run) so it can dedupe across them. ``aclose`` below
+        #: deliberately never closes it; whoever built it (see
+        #: :func:`periplus.storage.build_evidence_cache`) also shuts it down.
+        self.evidence_cache = evidence_cache
 
     async def gather(
         self,
@@ -118,9 +139,7 @@ class Retriever:
                 continue
 
             result.fetch_attempts += len(fresh)
-            documents = await self._read(
-                fresh, query=text, subject=subject, failures=result.failures
-            )
+            documents = await self._read(fresh, query=text, subject=subject, result=result)
             result.documents.extend(documents)
 
         return result
@@ -131,36 +150,88 @@ class Retriever:
         *,
         query: str,
         subject: str | None,
-        failures: list[str],
+        result: RetrievalResult,
     ) -> list[SourceDocument]:
         by_url = {normalise_url(hit.url): hit for hit in hits}
-        outcomes = await self.fetcher.fetch_many([hit.url for hit in hits])
 
-        documents: list[SourceDocument] = []
-        for hit, outcome in zip(hits, outcomes, strict=True):
+        resolved: dict[int, SourceDocument] = {}
+        pending: list[tuple[int, SearchResult]] = []
+        for index, hit in enumerate(hits):
+            reused = await self._reuse(hit, query=query)
+            if reused is not None:
+                resolved[index] = reused
+                result.evidence_reused += 1
+            else:
+                pending.append((index, hit))
+
+        outcomes = await self.fetcher.fetch_many([hit.url for _, hit in pending])
+
+        for (index, hit), outcome in zip(pending, outcomes, strict=True):
             if isinstance(outcome, FetchFailure):
-                failures.append(str(outcome))
+                result.failures.append(str(outcome))
                 fallback = self._from_snippet(hit, query=query, subject=subject)
                 if fallback is not None:
-                    documents.append(fallback)
+                    resolved[index] = fallback
                 continue
 
             document = self._from_page(outcome, by_url, query=query, subject=subject)
             if document.char_count < self.min_useful_chars:
-                failures.append(f"{document.url}: too little text after cleaning")
+                result.failures.append(f"{document.url}: too little text after cleaning")
                 fallback = self._from_snippet(hit, query=query, subject=subject)
                 if fallback is not None and fallback.char_count > document.char_count:
-                    documents.append(fallback)
+                    resolved[index] = fallback
                     continue
                 if document.char_count == 0:
                     continue
 
-            documents.append(document.truncated(self.max_chars_per_document))
+            bounded = document.truncated(self.max_chars_per_document)
+            resolved[index] = bounded
+            # Only a genuinely fetched and read page is remembered — never a snippet
+            # fallback. A search provider's excerpt standing in for a blocked page is a
+            # worse source than the real page would be; caching it would mean a later
+            # run that could fetch the real page successfully reuses the worse one
+            # instead of trying again.
+            if self.evidence_cache is not None:
+                await self.evidence_cache.remember(bounded, query=query)
 
-        return documents
+        return [resolved[index] for index in range(len(hits)) if index in resolved]
+
+    async def _reuse(self, hit: SearchResult, *, query: str) -> SourceDocument | None:
+        """Consult the evidence cache for ``hit`` before it is ever handed to the
+        fetcher. Matched on the search provider's own title and snippet — the only
+        description of the page available pre-fetch — against whatever full documents
+        the cache already holds."""
+        if self.evidence_cache is None:
+            return None
+        representative = f"{hit.title or ''}\n{hit.snippet}".strip()
+        if not representative:
+            return None
+        cached = await self.evidence_cache.find_similar(representative)
+        if cached is None:
+            return None
+        stored = cached.document
+        # The cached document keeps its own provenance (url, title, source_kind,
+        # original fetched_at) but takes this call's query — that is what actually
+        # surfaced it this time, and is what Evidence.query should record.
+        return SourceDocument(
+            url=stored.url,
+            text=stored.text,
+            title=stored.title,
+            published_at=stored.published_at,
+            source_kind=stored.source_kind,
+            language=stored.language,
+            query=query,
+            fetched_at=stored.fetched_at,
+            from_cache=True,
+        )
 
     async def aclose(self) -> None:
-        """Release the search and fetch clients assembled behind this seam."""
+        """Release the search and fetch clients assembled behind this seam.
+
+        Deliberately does not close ``evidence_cache`` — see the note on the field. A
+        shared, cross-run cache is opened and closed by whoever assembled it, not by
+        each disposable ``Retriever`` built for a single run.
+        """
         await self.search.aclose()
         await self.fetcher.aclose()
 
