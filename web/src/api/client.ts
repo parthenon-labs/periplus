@@ -4,6 +4,20 @@ import type {
   TripBriefCreate,
   ValidationIssue,
 } from './contracts'
+import {
+  failedRunSummary,
+  runningStageSummaries,
+  succeededResult,
+  succeededRunSummary,
+} from '../test/fixtures'
+
+const isDemo = import.meta.env.MODE === 'demo'
+
+const demoSummaries = [
+  succeededRunSummary,
+  ...Object.values(runningStageSummaries),
+  failedRunSummary,
+]
 
 export class ApiError extends Error {
   readonly status: number
@@ -48,13 +62,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export const api = {
+interface ApiClient {
+  createTrip: (brief: TripBriefCreate) => Promise<RunSummary>
+  listRuns: () => Promise<RunSummary[]>
+  getRun: (runId: string) => Promise<RunSummary>
+  getResult: (runId: string) => Promise<RunResultView>
+}
+
+export const api: ApiClient = {
   createTrip: (brief: TripBriefCreate) =>
-    request<RunSummary>('/trips', {
+    isDemo ? Promise.resolve(succeededRunSummary) : request<RunSummary>('/trips', {
       method: 'POST',
       body: JSON.stringify(brief),
     }),
-  listRuns: () => request<RunSummary[]>('/runs'),
-  getRun: (runId: string) => request<RunSummary>(`/runs/${runId}`),
-  getResult: (runId: string) => request<RunResultView>(`/runs/${runId}/result`),
+  listRuns: () => isDemo ? Promise.resolve(demoSummaries) : request<RunSummary[]>('/runs'),
+  getRun: (runId: string) => {
+    if (!isDemo) return request<RunSummary>(`/runs/${runId}`)
+    const summary = demoSummaries.find((candidate) => candidate.id === runId)
+    return summary
+      ? Promise.resolve(summary)
+      : Promise.reject(new ApiError('Run not found', 404))
+  },
+  getResult: (runId: string) => {
+    if (!isDemo) return request<RunResultView>(`/runs/${runId}/result`)
+    return runId === succeededResult.id
+      ? Promise.resolve(succeededResult)
+      : Promise.reject(new ApiError('Run result not found', 404))
+  },
 }

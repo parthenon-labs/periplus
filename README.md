@@ -8,7 +8,7 @@ Periplus turns a trip brief into a verified itinerary and publishable content.
 Every factual claim remains traceable to source evidence, an independent verdict,
 and the stage artifact that produced it.
 
-[Architecture](docs/architecture.md) · [Web design](DESIGN.md) · [Product](PRODUCT.md)
+[Live demo](https://parthenon-labs.github.io/periplus/) · [Architecture](docs/architecture.md) · [Web design](DESIGN.md) · [Product](PRODUCT.md)
 
 </div>
 
