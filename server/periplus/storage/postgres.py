@@ -63,7 +63,17 @@ class PostgresRunPersistence:
     """
 
     def __init__(self, database_url: str) -> None:
-        self._pool = AsyncConnectionPool(conninfo=database_url, open=False)
+        # ``check`` pings every connection the pool is about to hand out and discards
+        # it for a fresh one on failure, instead of handing back a connection that
+        # merely *looks* idle. Without it, a server that drops connections out from
+        # under the pool — Neon suspending its compute after a long idle period is the
+        # one that bit us — leaves the pool holding sockets that are dead but not
+        # marked as such, so the next borrower's query fails outright (`server closed
+        # the connection unexpectedly` / `consuming input failed`) instead of quietly
+        # reconnecting. See ``AsyncConnectionPool.check_connection``.
+        self._pool = AsyncConnectionPool(
+            conninfo=database_url, open=False, check=AsyncConnectionPool.check_connection
+        )
 
     async def open(self) -> None:
         await self._pool.open()

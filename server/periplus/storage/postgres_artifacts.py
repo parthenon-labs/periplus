@@ -61,7 +61,14 @@ class PostgresArtifactStore:
     """
 
     def __init__(self, database_url: str) -> None:
-        self._pool = AsyncConnectionPool(conninfo=database_url, open=False)
+        # ``check`` pings a connection before handing it out and transparently
+        # replaces it if the ping fails, so a connection Neon (or any other server)
+        # drops after a long idle period gets reconnected instead of surfacing as a
+        # query failure — see the matching comment in
+        # :class:`~periplus.storage.postgres.PostgresRunPersistence`.
+        self._pool = AsyncConnectionPool(
+            conninfo=database_url, open=False, check=AsyncConnectionPool.check_connection
+        )
         self._memory = InMemoryArtifactStore()
 
     async def open(self) -> None:

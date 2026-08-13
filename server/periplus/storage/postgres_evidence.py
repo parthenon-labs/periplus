@@ -94,8 +94,18 @@ class PostgresEvidenceCache:
     ) -> None:
         self.embedder = embedder
         self.similarity_threshold = similarity_threshold
+        # ``check`` pings a connection before handing it out and transparently
+        # replaces it if the ping fails — see the matching comment in
+        # :class:`~periplus.storage.postgres.PostgresRunPersistence`. This cache is
+        # already best-effort everywhere else (every method degrades to "nothing
+        # cached" rather than raising), so a dead connection would have been silently
+        # swallowed anyway, but there is no reason to pay for a doomed round trip and a
+        # cache miss when a ping and a reconnect both cost less.
         self._pool = AsyncConnectionPool(
-            conninfo=database_url, open=False, configure=register_vector_async
+            conninfo=database_url,
+            open=False,
+            configure=register_vector_async,
+            check=AsyncConnectionPool.check_connection,
         )
 
     async def open(self) -> None:
