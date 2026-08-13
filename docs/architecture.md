@@ -200,9 +200,11 @@ model providers — only whether the next stage may run.
 are the narrow bridge from Hermes's generic `StageAdapter` protocol to Explorer and
 Auditor's own contracts — the verify adapter is what turns a `ResearchBundle` into the
 bare claims-and-evidence call Auditor accepts, and reattaches the result. Run
-persistence (PostgreSQL) is not implemented yet; `InMemoryArtifactStore` is the only
-`ArtifactStore` today, chosen so the same protocol can be backed by a table later without
-Hermes changing.
+persistence is backed by `PostgresArtifactStore`, which implements the same
+`ArtifactStore` protocol `InMemoryArtifactStore` uses for tests, so Hermes never changes
+to know which one it is talking to. A run still mid-flight when the process dies is
+resumed on the next process's startup by `RunStore._resume_crashed_runs`, from the last
+stage that passed its gate.
 
 The name is deliberate and internal: Hermes is the god of travellers and the messenger
 between parties, which is precisely this component's job. It is not the repository name —
@@ -210,9 +212,14 @@ Meta's JavaScript engine already owns that word in this ecosystem.
 
 ## Storage
 
-PostgreSQL for runs, briefs, claims, evidence and itineraries. pgvector for evidence
-embeddings, which serve two purposes: deduplicating near-identical sources across queries,
-and retrieving prior evidence for a claim before spending a fetch on new sources.
+PostgreSQL for runs, briefs, claims, evidence and itineraries — implemented and load-
+bearing today (`PostgresArtifactStore`). pgvector is in the stack for a semantic
+evidence cache — deduplicating near-identical sources across queries, and retrieving
+prior evidence for a claim before spending a fetch on new sources — but that layer is
+not wired up yet: no embedding call is made anywhere in the pipeline. Every run still
+re-fetches from scratch even when a near-identical source was already pulled for an
+earlier claim. Sequenced as a cost optimisation, not a correctness gap: nothing depends
+on it, and Auditor never sees stale or duplicated evidence because of its absence.
 
 ## Model access
 
