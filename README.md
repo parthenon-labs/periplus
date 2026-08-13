@@ -12,12 +12,6 @@ and the stage artifact that produced it.
 
 </div>
 
-<p align="center">
-  <img src="docs/screenshots/trip-input.png" alt="Trip brief form" width="49%">
-  <img src="docs/screenshots/itinerary-result.png" alt="Verified itinerary with evidence and caveats" width="49%">
-</p>
-<p align="center"><sub>A real pipeline run: from trip constraints to a day-by-day plan with evidence and caveats.</sub></p>
-
 ---
 
 ## System
