@@ -12,10 +12,6 @@ and the stage artifact that produced it.
 
 </div>
 
-<p align="center">
-  <img src="docs/screenshots/itinerary-result.png" alt="Verified itinerary with evidence and caveats" width="420">
-</p>
-
 ---
 
 ## System
