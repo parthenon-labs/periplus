@@ -171,6 +171,11 @@ export interface components {
             /** Pieces */
             pieces?: components["schemas"]["ContentPiece"][];
             /**
+             * Claims
+             * @description The verified claims actually cited by at least one piece here, kept alongside the pieces — the same way VerifiedBundle and Itinerary carry their own claims — so a later stage (Illustrator) can look up what a piece states as fact without needing the itinerary two stages back.
+             */
+            claims?: components["schemas"]["Claim"][];
+            /**
              * Caveats
              * @description Drafted pieces that were dropped, and why — never silently discarded.
              */
@@ -229,6 +234,77 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * IllustratedContentSet
+         * @description Output of the Illustrator: the same content set, with images bound to claims.
+         */
+        IllustratedContentSet: {
+            /** Itinerary Id */
+            itinerary_id: string;
+            /** Pieces */
+            pieces?: components["schemas"]["ContentPiece"][];
+            /**
+             * Claims
+             * @description The verified claims actually cited by at least one piece here, kept alongside the pieces — the same way VerifiedBundle and Itinerary carry their own claims — so a later stage (Illustrator) can look up what a piece states as fact without needing the itinerary two stages back.
+             */
+            claims?: components["schemas"]["Claim"][];
+            /**
+             * Caveats
+             * @description Drafted pieces that were dropped, and why — never silently discarded.
+             */
+            caveats?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Images */
+            images?: components["schemas"]["Illustration"][];
+        };
+        /**
+         * Illustration
+         * @description One generated image, bound to the verified claim(s) it depicts.
+         *
+         *     Never a model's free-associated guess at what a destination looks like: the prompt
+         *     that produced it is templated straight from claim text already sitting in the
+         *     ContentSet it was illustrated from — see IllustrationAgent.
+         */
+        Illustration: {
+            /** Id */
+            id?: string;
+            /**
+             * Subject
+             * @description What the image depicts, e.g. 'Museo del Prado'.
+             */
+            subject: string;
+            /**
+             * Claim Ids
+             * @description Verified claims this image illustrates.
+             */
+            claim_ids?: string[];
+            /**
+             * Prompt
+             * @description The templated prompt sent to the image provider.
+             */
+            prompt: string;
+            /**
+             * Data Base64
+             * @description The generated image, base64-encoded.
+             */
+            data_base64?: string | null;
+            /**
+             * Mime Type
+             * @default image/png
+             */
+            mime_type: string;
+            /** Model */
+            model?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
         };
         /**
          * Itinerary
@@ -436,6 +512,7 @@ export interface components {
             verified?: components["schemas"]["VerifiedBundle"] | null;
             itinerary?: components["schemas"]["Itinerary"] | null;
             content?: components["schemas"]["ContentSet"] | null;
+            illustrated?: components["schemas"]["IllustratedContentSet"] | null;
             /**
              * Created At
              * Format: date-time
@@ -518,7 +595,7 @@ export interface components {
          * Stage
          * @enum {string}
          */
-        Stage: "research" | "verify" | "plan" | "write";
+        Stage: "research" | "verify" | "plan" | "write" | "illustrate";
         /** StageProgress */
         StageProgress: {
             stage: components["schemas"]["Stage"];
@@ -531,6 +608,10 @@ export interface components {
             finished_at?: string | null;
             /** Error */
             error?: string | null;
+            /** Progress Current */
+            progress_current?: number | null;
+            /** Progress Total */
+            progress_total?: number | null;
         };
         /** StageRun */
         StageRun: {
@@ -565,6 +646,10 @@ export interface components {
              * @default 0
              */
             tokens: number;
+            /** Progress Current */
+            progress_current?: number | null;
+            /** Progress Total */
+            progress_total?: number | null;
         };
         /**
          * Transfer

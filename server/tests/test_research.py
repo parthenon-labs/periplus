@@ -237,6 +237,61 @@ class TestFailureAndBudgets:
         assert "outside the budget" not in llm.last_request[1].content
         assert any("input budget reached" in gap for gap in outcome.bundle.gaps)
 
+    async def test_on_progress_reports_after_each_batch(self):
+        docs = [
+            document(url="https://a.example/one", text="Fact one is exact."),
+            document(url="https://b.example/two", text="Fact two is exact."),
+        ]
+        result = RetrievalResult(documents=docs, queries_run=["q"])
+        replies = [
+            extraction(quote="Fact one is exact.", text="Fact one is exact.", name="One"),
+            extraction(quote="Fact two is exact.", text="Fact two is exact.", name="Two"),
+        ]
+        explorer, _ = agent(replies, result, max_documents_per_batch=1)
+        ticks: list[tuple[int, int]] = []
+        await explorer.research(
+            brief(), on_progress=lambda processed, total: ticks.append((processed, total))
+        )
+        assert ticks == [(1, 2), (2, 2)]
+
+    async def test_on_progress_is_optional(self):
+        result = RetrievalResult(documents=[document()], queries_run=["q"])
+        explorer, _ = agent(
+            [extraction(quote="The Sydney Opera House is open daily from 9am.", text="Opens 9am.")],
+            result,
+        )
+        # No on_progress given — must not raise.
+        outcome = await explorer.research(brief())
+        assert len(outcome.bundle.claims) == 1
+
+    async def test_on_bundle_progress_reports_running_totals_after_each_batch(self):
+        docs = [
+            document(url="https://a.example/one", text="Fact one is exact."),
+            document(url="https://b.example/two", text="Fact two is exact."),
+        ]
+        result = RetrievalResult(documents=docs, queries_run=["q"])
+        replies = [
+            extraction(quote="Fact one is exact.", text="Fact one is exact.", name="One"),
+            extraction(quote="Fact two is exact.", text="Fact two is exact.", name="Two"),
+        ]
+        explorer, _ = agent(replies, result, max_documents_per_batch=1)
+        ticks: list[tuple[int, int]] = []
+        await explorer.research(
+            brief(), on_bundle_progress=lambda claims, evidence: ticks.append((claims, evidence))
+        )
+        # One new claim (grounded in one new evidence item) surfaces per batch.
+        assert ticks == [(1, 1), (2, 2)]
+
+    async def test_on_bundle_progress_is_optional(self):
+        result = RetrievalResult(documents=[document()], queries_run=["q"])
+        explorer, _ = agent(
+            [extraction(quote="The Sydney Opera House is open daily from 9am.", text="Opens 9am.")],
+            result,
+        )
+        # No on_bundle_progress given — must not raise.
+        outcome = await explorer.research(brief())
+        assert len(outcome.bundle.claims) == 1
+
     async def test_duplicate_source_is_not_sent_to_the_model_twice(self):
         exact = "The venue opens daily at 9am."
         docs = [

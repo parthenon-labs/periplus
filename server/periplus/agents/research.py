@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -189,7 +190,20 @@ class ResearchAgent:
         #: drift apart.
         self.max_claims = max(1, max_claims)
 
-    async def research(self, brief: TripBrief) -> ResearchOutcome:
+    async def research(
+        self,
+        brief: TripBrief,
+        *,
+        on_progress: Callable[[int, int], None] | None = None,
+        on_bundle_progress: Callable[[int, int], None] | None = None,
+    ) -> ResearchOutcome:
+        """Research ``brief``. ``on_progress(processed, total)`` fires after each batch
+        of source documents is extracted, if given — a live signal for polling UIs, not
+        anything the outcome itself depends on. ``on_bundle_progress(claims, evidence)``
+        fires alongside it with the bundle's running totals, pre-dedup — another live
+        signal only, since dedup/trim below may still shrink both before the final
+        outcome is returned.
+        """
         planned_queries = build_research_queries(brief, limit=None)
         queries = planned_queries[: self.max_queries]
         retrieval = await self.retriever.gather(queries, subject=brief.destination)
@@ -239,8 +253,15 @@ class ResearchAgent:
             max_documents=self.max_documents_per_batch,
             max_chars=self.max_chars_per_batch,
         )
+        total_documents = len(documents)
+        processed_documents = 0
         for batch in batches:
             await self._extract_batch(brief, batch, outcome)
+            processed_documents += len(batch)
+            if on_progress is not None:
+                on_progress(processed_documents, total_documents)
+            if on_bundle_progress is not None:
+                on_bundle_progress(len(bundle.claims), len(bundle.evidence))
 
         _deduplicate_bundle(bundle, max_evidence_per_claim=self.max_evidence_per_claim)
         if len(bundle.claims) > self.max_claims:

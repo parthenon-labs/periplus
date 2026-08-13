@@ -15,6 +15,7 @@ export const stageOrder = [
   'verify',
   'plan',
   'write',
+  'illustrate',
 ] as const satisfies readonly Stage[]
 
 const runningCounts: Record<Stage, RunSummary['counts']> = {
@@ -46,6 +47,20 @@ const runningCounts: Record<Stage, RunSummary['counts']> = {
     itinerary_items: 2,
     content_pieces: 1,
   },
+  illustrate: {
+    evidence: 4,
+    claims: 3,
+    verified_claims: 3,
+    itinerary_items: 2,
+    content_pieces: 1,
+  },
+}
+
+// Only research and verify report incremental progress today (see StageRun in
+// periplus/models.py); everything else stays null here, same as the real API.
+const MID_STAGE_PROGRESS: Partial<Record<Stage, { progress_current: number; progress_total: number }>> = {
+  research: { progress_current: 5, progress_total: 12 },
+  verify: { progress_current: 30, progress_total: 50 },
 }
 
 function progressAt(currentStage: Stage): StageProgress[] {
@@ -58,6 +73,8 @@ function progressAt(currentStage: Stage): StageProgress[] {
     started_at: index <= currentIndex ? `2026-08-11T08:0${index}:00Z` : null,
     finished_at: index < currentIndex ? `2026-08-11T08:0${index + 1}:00Z` : null,
     error: null,
+    progress_current: index === currentIndex ? (MID_STAGE_PROGRESS[stage]?.progress_current ?? null) : null,
+    progress_total: index === currentIndex ? (MID_STAGE_PROGRESS[stage]?.progress_total ?? null) : null,
   }))
 }
 
@@ -84,6 +101,7 @@ export const runningStageSummaries = {
   verify: runningSummary('verify'),
   plan: runningSummary('plan'),
   write: runningSummary('write'),
+  illustrate: runningSummary('illustrate'),
 } satisfies Record<Stage, RunSummary>
 
 export const succeededRunSummary = {
@@ -424,6 +442,13 @@ export const succeededResult = {
       itinerary_id: 'itinerary-lisbon',
       pieces: [
         {
+          kind: 'article',
+          title: 'Belém, on foot and on the record',
+          body: 'Begin in Belém at 10:00. The Mosteiro dos Jerónimos anchors the morning.',
+          word_count: 12,
+          claim_ids: ['claim-hours'],
+        },
+        {
           kind: 'itinerary_doc',
           title: 'Lisbon, evidence first',
           body: 'Begin in Belém at 10:00. Confirm the current ticket price before booking.',
@@ -431,8 +456,45 @@ export const succeededResult = {
           claim_ids: ['claim-hours'],
         },
       ],
+      claims: [
+        {
+          id: 'claim-hours',
+          subject: 'Mosteiro dos Jerónimos',
+          text: 'The monastery opens at 10:00 on Tuesday.',
+          kind: 'hours',
+          evidence_ids: ['evidence-official-hours'],
+          check: {
+            verdict: 'supported',
+            confidence: 0.98,
+            reason: 'The official visitor information gives a 10:00 opening time.',
+            supporting_evidence_ids: ['evidence-official-hours'],
+            conflicting_evidence_ids: [],
+            model: 'scripted-test-model',
+            checked_at: '2026-08-11T08:02:00Z',
+          },
+        },
+      ],
       caveats: ['The contradicted ticket-price claim was not stated as fact.'],
       created_at: FINISHED_AT,
+    },
+    illustrated: {
+      itinerary_id: 'itinerary-lisbon',
+      pieces: [],
+      claims: [],
+      caveats: [],
+      created_at: FINISHED_AT,
+      images: [
+        {
+          id: 'image-jeronimos',
+          subject: 'Mosteiro dos Jerónimos',
+          claim_ids: ['claim-hours'],
+          prompt: 'Editorial travel photograph of Mosteiro dos Jerónimos.',
+          data_base64: 'aGVsbG8=',
+          mime_type: 'image/png',
+          model: 'scripted-image-model',
+          created_at: FINISHED_AT,
+        },
+      ],
     },
     created_at: CREATED_AT,
     finished_at: FINISHED_AT,

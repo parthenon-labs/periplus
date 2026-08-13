@@ -51,6 +51,17 @@ class StageAdapter(Protocol):
     :class:`~periplus.orchestrator.hermes.StageFailure` for one that would not change on
     retry. Anything else propagates — Hermes does not guess at failures it was not told
     about.
+
+    ``set_progress_callback`` is deliberately not part of this protocol: Hermes looks it
+    up with ``getattr(adapter, "set_progress_callback", None)`` before every attempt and
+    calls it only when present, so an adapter that has no meaningful notion of partial
+    progress (Navigator, Chronicler, Illustrator today) needs no method at all rather
+    than a no-op stub. An adapter that does implement it should store the callback and
+    invoke it with ``(processed, total)`` as its wrapped agent makes progress.
+
+    ``set_bundle_progress_callback`` is the same story for the one adapter (research)
+    whose wrapped agent builds up a growing artifact worth reporting on its own terms —
+    invoked with ``(claims, evidence)`` as the bundle grows, ahead of dedup/trim.
     """
 
     stage: Stage
@@ -111,9 +122,21 @@ class ResearchStageAdapter:
 
     def __init__(self, agent: ResearchAgent) -> None:
         self._agent = agent
+        self._on_progress: Callable[[int, int], None] | None = None
+        self._on_bundle_progress: Callable[[int, int], None] | None = None
+
+    def set_progress_callback(self, callback: Callable[[int, int], None] | None) -> None:
+        self._on_progress = callback
+
+    def set_bundle_progress_callback(self, callback: Callable[[int, int], None] | None) -> None:
+        self._on_bundle_progress = callback
 
     async def run(self, stage_input: TripBrief) -> StageResult:
-        outcome = await self._agent.research(stage_input)
+        outcome = await self._agent.research(
+            stage_input,
+            on_progress=self._on_progress,
+            on_bundle_progress=self._on_bundle_progress,
+        )
         # Charge exact retrieval-attempt counts, not an approximation from what made it
         # into the bundle: a failed query still cost a search call, and a fetched page
         # that was blocked, too thin to use, or simply cited by no claim still cost a
@@ -140,10 +163,17 @@ class VerificationStageAdapter:
     def __init__(self, agent: VerificationAgent, *, clock: Clock) -> None:
         self._agent = agent
         self._clock = clock
+        self._on_progress: Callable[[int, int], None] | None = None
+
+    def set_progress_callback(self, callback: Callable[[int, int], None] | None) -> None:
+        self._on_progress = callback
 
     async def run(self, stage_input: ResearchBundle) -> StageResult:
         outcome = await self._agent.verify(
-            stage_input.claims, stage_input.evidence, as_of=self._clock.now().date()
+            stage_input.claims,
+            stage_input.evidence,
+            as_of=self._clock.now().date(),
+            on_progress=self._on_progress,
         )
         verified = outcome.to_bundle(stage_input)
         usage = ResourceUsage(tokens=outcome.total_tokens)

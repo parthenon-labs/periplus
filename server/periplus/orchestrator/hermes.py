@@ -187,6 +187,35 @@ def _never_cancelled() -> bool:
     return False
 
 
+def _progress_reporter(stage_run: StageRun) -> Callable[[int, int], None]:
+    """Bind a progress callback to one attempt's :class:`StageRun`.
+
+    ``stage_run`` is the same mutable object ``RunEntry.live_run`` keeps reachable while
+    the attempt is running (see ``periplus.api.runs``), so writing into it here is
+    immediately visible to a caller polling ``RunSummary`` — no extra plumbing needed.
+    """
+
+    def report(processed: int, total: int) -> None:
+        stage_run.progress_current = processed
+        stage_run.progress_total = total
+
+    return report
+
+
+def _bundle_progress_reporter(stage_run: StageRun) -> Callable[[int, int], None]:
+    """Bind a bundle-progress callback to one attempt's :class:`StageRun`.
+
+    Same "same mutable object, no extra plumbing" trick as :func:`_progress_reporter`,
+    for the ``(claims, evidence)`` signal research reports as its bundle grows.
+    """
+
+    def report(claims: int, evidence: int) -> None:
+        stage_run.live_claims = claims
+        stage_run.live_evidence = evidence
+
+    return report
+
+
 class Hermes:
     """Runs a configured, ordered subset of the pipeline against one brief at a time."""
 
@@ -356,6 +385,14 @@ class Hermes:
             run.stages.append(stage_run)
             _transition_stage(stage_run, RunStatus.RUNNING, clock=self.clock)
             attempts_this_drive += 1
+
+            set_progress_callback = getattr(adapter, "set_progress_callback", None)
+            if set_progress_callback is not None:
+                set_progress_callback(_progress_reporter(stage_run))
+
+            set_bundle_progress_callback = getattr(adapter, "set_bundle_progress_callback", None)
+            if set_bundle_progress_callback is not None:
+                set_bundle_progress_callback(_bundle_progress_reporter(stage_run))
 
             try:
                 result = await adapter.run(stage_input)

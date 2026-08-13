@@ -1110,6 +1110,14 @@ class TestRealAdapters:
         assert research_run is not None and len(research_run.calls) == 1
         assert verify_run is not None and len(verify_run.calls) == 1
         assert run.total_tokens > 0
+        # Hermes wires each real adapter's progress callback into the live StageRun it
+        # just appended (see _progress_reporter); a single-document, single-claim run
+        # produces exactly one tick each, landing at "done".
+        assert (research_run.progress_current, research_run.progress_total) == (1, 1)
+        assert (verify_run.progress_current, verify_run.progress_total) == (1, 1)
+        # Same wiring, for the bundle-progress callback (see _bundle_progress_reporter):
+        # one claim grounded in one piece of evidence, ticked once.
+        assert (research_run.live_claims, research_run.live_evidence) == (1, 1)
 
 
 # --------------------------------------------------------------------------------------

@@ -186,6 +186,19 @@
       animation: panel-out-down 200ms cubic-bezier(0.4, 0, 1, 1);
     }
   }
+
+  /* A slowly scrolling column of "still working" phrases for research/verify while
+     they run — see StageActivityTicker. The track holds the phrase list twice back to
+     back and scrolls exactly one copy's height, so the loop point is invisible. Faded
+     top/bottom edges (not a hard clip) read as a strip cut from a longer feed. */
+  .stage-ticker {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+  }
+  .stage-ticker-track {
+    animation: stage-ticker-scroll 9s linear infinite;
+  }
 }
 
 @keyframes overlay-in {
@@ -218,11 +231,21 @@
     transform: translateY(100%);
   }
 }
+@keyframes stage-ticker-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    /* Exactly one phrase-list's height, since the track renders the list twice. */
+    transform: translateY(-50%);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .disclosure-body,
   .evidence-overlay,
-  .evidence-panel {
+  .evidence-panel,
+  .stage-ticker-track {
     animation: none !important;
     transition: none !important;
   }

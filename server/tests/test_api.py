@@ -20,14 +20,18 @@ from fastapi.testclient import TestClient
 
 from periplus.api.app import create_app
 from periplus.api.runs import RunNotFound, RunStore
+from periplus.api.schemas import RunCounts
 from periplus.models import (
     Check,
     Claim,
     ClaimKind,
+    Evidence,
     ResearchBundle,
     Run,
     RunStatus,
+    SourceKind,
     Stage,
+    StageRun,
     TripBrief,
     Verdict,
     VerifiedBundle,
@@ -78,6 +82,92 @@ def wait_for_completion(client: TestClient, run_id: str, *, attempts: int = 50) 
             return body
         time.sleep(0.01)
     raise AssertionError(f"run {run_id} never left running")
+
+
+class TestRunCounts:
+    """``RunCounts.from_run`` falls back to a running stage's live signal — its own
+    growing bundle for research, ``progress_current`` for verify — while that stage's
+    final artifact isn't attached to the run yet, so Evidence/Claims/Verified climb
+    during the stage instead of sitting at zero until it completes.
+    """
+
+    def test_zero_before_research_starts(self):
+        run = Run(brief=brief())
+        counts = RunCounts.from_run(run)
+        assert counts == RunCounts()
+
+    def test_uses_researchs_live_totals_while_research_is_still_running(self):
+        run = Run(brief=brief())
+        research_run = StageRun(
+            stage=Stage.RESEARCH,
+            status=RunStatus.RUNNING,
+            live_claims=3,
+            live_evidence=5,
+        )
+        run.stages.append(research_run)
+        counts = RunCounts.from_run(run)
+        assert (counts.claims, counts.evidence) == (3, 5)
+        # Nothing has been verified yet — that's a later stage's signal, not research's.
+        assert counts.verified_claims == 0
+
+    def test_uses_the_attached_bundles_own_counts_once_research_is_done(self):
+        run = Run(brief=brief())
+        # A stale live_* from the finished attempt must not override the real bundle.
+        run.stages.append(
+            StageRun(
+                stage=Stage.RESEARCH,
+                status=RunStatus.SUCCEEDED,
+                live_claims=99,
+                live_evidence=99,
+            )
+        )
+        run.research = ResearchBundle(
+            brief_id=run.brief.id,
+            claims=[Claim(id="c1", subject="x", text="y", kind=ClaimKind.OTHER)],
+            evidence=[
+                Evidence(
+                    id="e1", url="https://example.com", snippet="text", source_kind=SourceKind.GUIDE
+                )
+            ],
+        )
+        counts = RunCounts.from_run(run)
+        assert (counts.claims, counts.evidence) == (1, 1)
+
+    def test_uses_verifys_progress_current_as_verified_count_while_verify_is_running(self):
+        run = Run(brief=brief())
+        run.research = ResearchBundle(
+            brief_id=run.brief.id,
+            claims=[
+                Claim(id="c1", subject="x", text="y", kind=ClaimKind.OTHER),
+                Claim(id="c2", subject="x", text="z", kind=ClaimKind.OTHER),
+            ],
+        )
+        run.stages.append(
+            StageRun(
+                stage=Stage.VERIFY, status=RunStatus.RUNNING, progress_current=1, progress_total=2
+            )
+        )
+        counts = RunCounts.from_run(run)
+        assert counts.claims == 2
+        assert counts.verified_claims == 1
+
+    def test_uses_the_attached_verified_bundles_own_checks_once_verify_is_done(self):
+        run = Run(brief=brief())
+        claim = Claim(id="c1", subject="x", text="y", kind=ClaimKind.OTHER)
+        claim.check = Check(verdict=Verdict.SUPPORTED, confidence=0.9, reason="matches the source")
+        # A stale progress_current from the finished attempt must not override the
+        # verified bundle's own, authoritative per-claim checks.
+        run.stages.append(
+            StageRun(
+                stage=Stage.VERIFY,
+                status=RunStatus.SUCCEEDED,
+                progress_current=99,
+                progress_total=99,
+            )
+        )
+        run.verified = VerifiedBundle(brief_id=run.brief.id, claims=[claim])
+        counts = RunCounts.from_run(run)
+        assert counts.verified_claims == 1
 
 
 class TestRunStore:

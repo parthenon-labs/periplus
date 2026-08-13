@@ -1,6 +1,9 @@
 import type { RunCounts, RunStatus, Stage, StageProgress } from '../api/contracts'
 import { STAGE_DESCRIPTION, STAGE_LABEL, STAGE_ORDER } from '../lib/stage'
 import { AlertIcon, CheckIcon } from './icons'
+import { StageActivityTicker } from './StageActivityTicker'
+
+const TICKED_STAGES = new Set<Stage>(['research', 'verify'])
 
 function markerState(status: RunStatus | null | undefined): 'done' | 'active' | 'failed' | 'pending' {
   if (status === 'succeeded') return 'done'
@@ -62,12 +65,24 @@ export function StageRoute({
                 />
               ) : null}
               <Marker state={state} />
-              <div className="flex flex-col gap-0.5 pb-2 sm:pb-0">
+              <div className="flex flex-col gap-1.5 pb-2 sm:pb-0">
                 <span className={`text-sm font-medium ${isCurrent ? 'text-bronze-deep' : 'text-ink'}`}>
                   {STAGE_LABEL[stage]}
                 </span>
                 {isCurrent && state === 'active' ? (
-                  <span className="max-w-[16rem] text-xs text-ink-soft sm:mx-auto">{STAGE_DESCRIPTION[stage]}</span>
+                  <>
+                    <span className="max-w-[16rem] text-xs text-ink-soft sm:mx-auto">{STAGE_DESCRIPTION[stage]}</span>
+                    {progress?.progress_total ? (
+                      <span className="chart-tick tabular text-bronze-deep">
+                        {progress.progress_current ?? 0} of {progress.progress_total} processed
+                      </span>
+                    ) : null}
+                    {TICKED_STAGES.has(stage) ? (
+                      <div className="mx-auto mt-1">
+                        <StageActivityTicker stage={stage as 'research' | 'verify'} />
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
                 {progress?.error ? <span className="text-xs text-contradicted">{progress.error}</span> : null}
               </div>

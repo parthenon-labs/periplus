@@ -470,6 +470,23 @@ class StageRun(Artifact):
     queries: int = Field(default=0, ge=0)
     fetches: int = Field(default=0, ge=0)
     tokens: int = Field(default=0, ge=0)
+    #: Coarse, best-effort progress within a single running attempt — e.g. "12 of 20
+    #: source documents extracted" for research, "30 of 50 claims verified" for verify.
+    #: Set by an adapter that reports incremental progress (see
+    #: ``StageAdapter.set_progress_callback``); stays ``None`` for adapters that do not.
+    #: Never persisted as anything authoritative — ``queries``/``fetches``/``tokens``
+    #: remain the source of truth for cost; this is purely a live polling signal.
+    progress_current: int | None = Field(default=None, ge=0)
+    progress_total: int | None = Field(default=None, ge=0)
+    #: Live "how much has research found so far" signal, for the one stage that builds
+    #: up a growing bundle before its final artifact is deduplicated, trimmed, and
+    #: attached to the run — see ``StageAdapter.set_bundle_progress_callback``. Read
+    #: ahead of the bundle's own (not-yet-attached) counts by ``RunCounts.from_run`` so
+    #: the Evidence/Claims totals climb during research instead of sitting at zero until
+    #: the stage completes. Pre-dedup, so it may run slightly ahead of the final count;
+    #: stays ``None`` for every stage but research.
+    live_claims: int | None = Field(default=None, ge=0)
+    live_evidence: int | None = Field(default=None, ge=0)
 
     @property
     def duration_ms(self) -> int | None:

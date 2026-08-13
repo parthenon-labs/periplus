@@ -63,6 +63,11 @@ class StageProgress(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error: str | None = None
+    #: Coarse within-attempt progress — e.g. documents extracted, claims verified — for
+    #: a stage that reports it (research, verify today). ``None`` on every other stage,
+    #: and on these two before their first batch completes.
+    progress_current: int | None = None
+    progress_total: int | None = None
 
 
 class RunCounts(BaseModel):
@@ -82,14 +87,34 @@ class RunCounts(BaseModel):
         bundle = run.itinerary or run.verified or run.research
         claims = bundle.claims if bundle is not None else []
         evidence = bundle.evidence if bundle is not None else []
+        evidence_count = len(evidence)
+        claims_count = len(claims)
+        verified_count = sum(claim.check is not None for claim in claims)
+
+        # No bundle attached yet means research itself is still running (or hasn't
+        # started) — fall back to its live, pre-dedup running totals so Evidence/Claims
+        # climb during research instead of sitting at zero until the stage's gate passes.
+        if bundle is None:
+            research_run = run.stage_run(Stage.RESEARCH)
+            if research_run is not None:
+                evidence_count = research_run.live_evidence or 0
+                claims_count = research_run.live_claims or 0
+
+        # Claims are known (research is attached) but verify hasn't finished — its own
+        # progress_current already *is* the verified-claim count, live.
+        if run.research is not None and run.verified is None:
+            verify_run = run.stage_run(Stage.VERIFY)
+            if verify_run is not None and verify_run.progress_current is not None:
+                verified_count = verify_run.progress_current
+
         itinerary_items = (
             sum(len(day.items) for day in run.itinerary.days) if run.itinerary is not None else 0
         )
         content_pieces = len(run.content.pieces) if run.content is not None else 0
         return cls(
-            evidence=len(evidence),
-            claims=len(claims),
-            verified_claims=sum(claim.check is not None for claim in claims),
+            evidence=evidence_count,
+            claims=claims_count,
+            verified_claims=verified_count,
             itinerary_items=itinerary_items,
             content_pieces=content_pieces,
         )
@@ -136,6 +161,8 @@ class RunSummary(BaseModel):
                 started_at=stage_run.started_at if stage_run is not None else None,
                 finished_at=stage_run.finished_at if stage_run is not None else None,
                 error=stage_run.error if stage_run is not None else None,
+                progress_current=stage_run.progress_current if stage_run is not None else None,
+                progress_total=stage_run.progress_total if stage_run is not None else None,
             )
             for stage, stage_run in latest_by_stage.items()
         ]

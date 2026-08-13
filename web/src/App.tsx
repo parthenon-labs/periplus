@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { ArticlePage } from './routes/ArticlePage'
 import { RunProgressPage } from './routes/RunProgressPage'
 import { RunResultPage } from './routes/RunResultPage'
 import { TripInputPage } from './routes/TripInputPage'
@@ -9,6 +10,7 @@ function App() {
       <Route path="/" element={<TripInputPage />} />
       <Route path="/runs/:runId" element={<RunProgressPage />} />
       <Route path="/runs/:runId/result" element={<RunResultPage />} />
+      <Route path="/runs/:runId/article" element={<ArticlePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

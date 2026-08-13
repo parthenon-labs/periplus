@@ -37,6 +37,7 @@ export function RunResultPage() {
   const selectedPlaceName = selectedItem?.place_id ? placesById.get(selectedItem.place_id)?.name : undefined
 
   const contentPiece = result?.run?.content?.pieces?.[0]
+  const hasIllustratedContent = Boolean(result?.run?.content?.pieces?.length)
 
   return (
     <AppShell>
@@ -71,7 +72,17 @@ export function RunResultPage() {
                 <h1 className="font-serif text-3xl text-ink sm:text-4xl">{itinerary.destination}</h1>
                 {brief ? <p className="mt-1 text-sm text-ink-soft">{formatDateRange(brief.start_date, brief.end_date)}</p> : null}
               </div>
-              <span className="chart-tick tabular">No. {archiveNumber(result.id)}</span>
+              <div className="flex items-center gap-4">
+                {hasIllustratedContent ? (
+                  <Link
+                    to={`/runs/${runId}/article`}
+                    className="rounded-full border border-bronze-deep px-4 py-1.5 text-sm font-medium text-bronze-deep transition hover:bg-bronze-deep hover:text-paper"
+                  >
+                    Read the illustrated article →
+                  </Link>
+                ) : null}
+                <span className="chart-tick tabular">No. {archiveNumber(result.id)}</span>
+              </div>
             </header>
 
             <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_22rem]">

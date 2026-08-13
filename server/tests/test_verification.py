@@ -387,6 +387,32 @@ class TestBudgetsAndBatches:
         assert outcome.claims[1].check is None
         assert "claim limit" in outcome.failures[0].reason
 
+    async def test_on_progress_reports_after_each_batch(self):
+        claims = [
+            make_claim(id=f"claim-{number}", evidence_ids=[f"evidence-{number}"])
+            for number in range(1, 4)
+        ]
+        evidence = [
+            make_evidence(id=f"evidence-{number}", url=f"https://museum.example/{number}")
+            for number in range(1, 4)
+        ]
+        replies = [
+            reply(
+                decision("claim-1", "evidence-1"),
+                decision("claim-2", "evidence-2"),
+            ),
+            reply(decision("claim-3", "evidence-3")),
+        ]
+        auditor, _ = agent(replies, claims_per_batch=2)
+        ticks: list[tuple[int, int]] = []
+        await auditor.verify(
+            claims,
+            evidence,
+            as_of=AS_OF,
+            on_progress=lambda verified, total: ticks.append((verified, total)),
+        )
+        assert ticks == [(2, 3), (3, 3)]
+
     async def test_evidence_limit_fails_instead_of_omitting_a_source(self):
         claim = make_claim(evidence_ids=["evidence-1", "evidence-2"])
         evidence = [make_evidence(), make_evidence(id="evidence-2")]

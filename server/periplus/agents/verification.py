@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
@@ -159,11 +160,14 @@ class VerificationAgent:
         evidence: list[Evidence],
         *,
         as_of: date | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> VerificationOutcome:
         """Verify claim copies against supplied evidence, preserving every failure.
 
         ``as_of`` makes replay and freshness tests stable. It defaults to the current UTC
-        date, never to a date inferred by the model.
+        date, never to a date inferred by the model. ``on_progress(verified, total)`` fires
+        after each batch, if given — a live signal for polling UIs, not anything the
+        outcome itself depends on.
         """
         checked_at = datetime.now(UTC)
         as_of = as_of or checked_at.date()
@@ -263,6 +267,8 @@ class VerificationAgent:
         )
         outcome.failures.extend(rejected)
 
+        total_claims = sum(len(batch) for batch in batches)
+        verified_claims = 0
         for batch in batches:
             await self._verify_batch(
                 batch,
@@ -271,6 +277,9 @@ class VerificationAgent:
                 as_of=as_of,
                 checked_at=checked_at,
             )
+            verified_claims += len(batch)
+            if on_progress is not None:
+                on_progress(verified_claims, total_claims)
 
         return outcome
 

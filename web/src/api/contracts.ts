@@ -16,6 +16,10 @@ export type Claim = ApiSchemas['Claim']
 export type Evidence = ApiSchemas['Evidence']
 export type Place = ApiSchemas['Place']
 export type Verdict = ApiSchemas['Verdict']
+export type ContentPiece = ApiSchemas['ContentPiece']
+export type ContentSet = ApiSchemas['ContentSet']
+export type Illustration = ApiSchemas['Illustration']
+export type IllustratedContentSet = ApiSchemas['IllustratedContentSet']
 
 export type ValidationIssue = ApiSchemas['ValidationError']
 
