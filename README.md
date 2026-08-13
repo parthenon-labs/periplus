@@ -1,5 +1,10 @@
 # Periplus
 
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-b08c4f.svg)](LICENSE)
+![Python](https://img.shields.io/badge/python-3.11-b08c4f.svg)
+![Stack](https://img.shields.io/badge/stack-FastAPI%20%C2%B7%20Pydantic%20v2%20%C2%B7%20React%2019-b08c4f.svg)
+![Status](https://img.shields.io/badge/status-early%20construction-9a3324.svg)
+
 A multi-agent pipeline that researches, verifies, and produces travel itineraries and content.
 
 > A *periplus* is an ancient Greek sailing log — ports, landmarks, distances and
@@ -11,6 +16,12 @@ A multi-agent pipeline that researches, verifies, and produces travel itinerarie
 > finished runs persisted to Postgres, and a React web client to submit a trip and
 > read the result. Nothing here is production ready yet, and the roadmap below marks
 > what exists.
+
+<p align="center">
+  <img src="docs/screenshots/trip-input.png" alt="Trip brief form — destination, dates and preferences" width="49%">
+  <img src="docs/screenshots/itinerary-result.png" alt="Verified itinerary — day-by-day schedule, evidence per place, and caveats" width="49%">
+</p>
+<p align="center"><sub>Submit a brief on the left; get a day-by-day itinerary with claims, evidence and caveats on the right — this is a real run, not a mock.</sub></p>
 
 ## Why this exists
 
@@ -194,10 +205,12 @@ on disk, so repeating the same query is free and offline.
 
 ```
 docs/            architecture and design notes
+  screenshots/   README screenshots
 server/          Python backend
   periplus/      library: models, llm, retrieval, agents, orchestrator, api
     probe.py     command-line retrieval probe
 web/             React client — submit a trip, poll progress, read the result
+  verify-flow.mjs  manual Playwright script: drives a real run end to end, screenshots each stage
 ```
 
 ## Licence
