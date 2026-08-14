@@ -30,31 +30,19 @@ function imageSrc(image: Illustration): string {
   return `data:${image.mime_type ?? 'image/png'};base64,${image.data_base64}`
 }
 
-function DemoIllustration({ subject, className }: { subject: string; className: string }) {
-  return (
-    <div
-      role="img"
-      aria-label={subject}
-      className={`${className} flex items-end bg-[radial-gradient(circle_at_72%_20%,rgba(178,140,79,0.38),transparent_27%),linear-gradient(145deg,#24312c_0%,#526a5e_42%,#d8c39d_100%)] p-6`}
-    >
-      <span className="font-serif text-2xl text-paper drop-shadow-sm">{subject}</span>
-    </div>
-  )
-}
-
 // A single image sits full-width. Two or more would otherwise wrap onto a second
 // row in a grid — instead they scroll horizontally as a swipeable strip, so the
 // reader drags/swipes sideways through them rather than the layout stacking rows.
+//
+// Demo mode's fixture images are the real, captured base64 output of a pipeline run
+// (see src/test/fixtures.ts) — there is no separate placeholder path here; both demo
+// and live runs render the same `<img>` from `image.data_base64`.
 function ImageStrip({ images, aspect = 'aspect-[16/9]' }: { images: Illustration[]; aspect?: string }) {
   if (images.length === 1) {
     const image = images[0]
     return (
       <figure className="overflow-hidden rounded-xl border border-line bg-paper-sunken">
-        {import.meta.env.MODE === 'demo' ? (
-          <DemoIllustration subject={image.subject} className={`${aspect} w-full`} />
-        ) : (
-          <img src={imageSrc(image)} alt={image.subject} className={`${aspect} w-full object-cover`} />
-        )}
+        <img src={imageSrc(image)} alt={image.subject} className={`${aspect} w-full object-cover`} />
         <figcaption className="px-3 py-2 text-xs text-ink-faint">{image.subject}</figcaption>
       </figure>
     )
@@ -67,11 +55,7 @@ function ImageStrip({ images, aspect = 'aspect-[16/9]' }: { images: Illustration
           key={image.id}
           className="w-[78%] shrink-0 snap-start overflow-hidden rounded-xl border border-line bg-paper-sunken sm:w-[46%] md:w-[32%]"
         >
-          {import.meta.env.MODE === 'demo' ? (
-            <DemoIllustration subject={image.subject} className={`${aspect} w-full`} />
-          ) : (
-            <img src={imageSrc(image)} alt={image.subject} className={`${aspect} w-full object-cover`} />
-          )}
+          <img src={imageSrc(image)} alt={image.subject} className={`${aspect} w-full object-cover`} />
           <figcaption className="px-3 py-2 text-xs text-ink-faint">{image.subject}</figcaption>
         </figure>
       ))}
