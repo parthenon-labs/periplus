@@ -271,6 +271,7 @@ class Stage(StrEnum):
     VERIFY = "verify"
     PLAN = "plan"
     WRITE = "write"
+    EDIT = "edit"
     ILLUSTRATE = "illustrate"
 
 
@@ -369,6 +370,7 @@ class Itinerary(Artifact):
 
 
 class ContentPiece(Artifact):
+    id: str = Field(default_factory=_uuid)
     kind: str = Field(description="itinerary_doc, article, thread, captions, checklist")
     title: str | None = None
     body: str
@@ -394,6 +396,13 @@ class ContentSet(Artifact):
     caveats: list[str] = Field(
         default_factory=list,
         description="Drafted pieces that were dropped, and why — never silently discarded.",
+    )
+    edited: bool = Field(
+        default=False,
+        description="Whether an Editor pass has revised these pieces from Chronicler's own "
+        "draft. False for the artifact Chronicler itself produces, and for an Editor "
+        "output where nothing needed changing; true as soon as any piece was tightened, "
+        "restructured or dropped.",
     )
     created_at: datetime = Field(default_factory=_now)
 
@@ -506,6 +515,11 @@ class Run(Artifact):
     verified: VerifiedBundle | None = None
     itinerary: Itinerary | None = None
     content: ContentSet | None = None
+    #: Editor's output: Chronicler's own `content` above, revised for scannability and
+    #: rigor. Kept alongside `content` rather than overwriting it, the same way
+    #: `illustrated` sits alongside `content` instead of replacing it — so a run's
+    #: pre-edit draft stays inspectable even after editing runs.
+    edited: ContentSet | None = None
     illustrated: IllustratedContentSet | None = None
     created_at: datetime = Field(default_factory=_now)
     finished_at: datetime | None = None

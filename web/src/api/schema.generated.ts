@@ -144,6 +144,8 @@ export interface components {
         ClaimKind: "hours" | "price" | "availability" | "transit" | "location" | "description" | "safety" | "other";
         /** ContentPiece */
         ContentPiece: {
+            /** Id */
+            id?: string;
             /**
              * Kind
              * @description itinerary_doc, article, thread, captions, checklist
@@ -180,6 +182,12 @@ export interface components {
              * @description Drafted pieces that were dropped, and why — never silently discarded.
              */
             caveats?: string[];
+            /**
+             * Edited
+             * @description Whether an Editor pass has revised these pieces from Chronicler's own draft. False for the artifact Chronicler itself produces, and for an Editor output where nothing needed changing; true as soon as any piece was tightened, restructured or dropped.
+             * @default false
+             */
+            edited: boolean;
             /**
              * Created At
              * Format: date-time
@@ -254,6 +262,12 @@ export interface components {
              * @description Drafted pieces that were dropped, and why — never silently discarded.
              */
             caveats?: string[];
+            /**
+             * Edited
+             * @description Whether an Editor pass has revised these pieces from Chronicler's own draft. False for the artifact Chronicler itself produces, and for an Editor output where nothing needed changing; true as soon as any piece was tightened, restructured or dropped.
+             * @default false
+             */
+            edited: boolean;
             /**
              * Created At
              * Format: date-time
@@ -512,6 +526,7 @@ export interface components {
             verified?: components["schemas"]["VerifiedBundle"] | null;
             itinerary?: components["schemas"]["Itinerary"] | null;
             content?: components["schemas"]["ContentSet"] | null;
+            edited?: components["schemas"]["ContentSet"] | null;
             illustrated?: components["schemas"]["IllustratedContentSet"] | null;
             /**
              * Created At
@@ -595,7 +610,7 @@ export interface components {
          * Stage
          * @enum {string}
          */
-        Stage: "research" | "verify" | "plan" | "write" | "illustrate";
+        Stage: "research" | "verify" | "plan" | "write" | "edit" | "illustrate";
         /** StageProgress */
         StageProgress: {
             stage: components["schemas"]["Stage"];
@@ -650,6 +665,10 @@ export interface components {
             progress_current?: number | null;
             /** Progress Total */
             progress_total?: number | null;
+            /** Live Claims */
+            live_claims?: number | null;
+            /** Live Evidence */
+            live_evidence?: number | null;
         };
         /**
          * Transfer

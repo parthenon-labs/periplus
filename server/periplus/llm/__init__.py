@@ -8,6 +8,8 @@ code. The per-stage policies below encode a deliberate asymmetry:
   sentence against a snippet. Extended reasoning there produces justification, not
   judgement, which is exactly the failure the verification stage exists to prevent.
 * **write** thinks a little; prose quality is not a reasoning problem.
+* **edit** thinks a little too, the same as write — tightening and restructuring
+  existing prose is not a harder reasoning problem than drafting it was.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ STAGE_THINKING: dict[Stage, tuple[Thinking, float | None]] = {
     Stage.VERIFY: (Thinking.OFF, 0.0),
     Stage.PLAN: (Thinking.HIGH, None),
     Stage.WRITE: (Thinking.LOW, None),
+    Stage.EDIT: (Thinking.LOW, None),
 }
 
 

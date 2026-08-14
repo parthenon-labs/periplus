@@ -21,6 +21,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+from periplus.agents.editor import EditorAgent
 from periplus.agents.illustration import IllustrationAgent
 from periplus.agents.research import ResearchAgent
 from periplus.agents.verification import VerificationAgent
@@ -44,6 +45,7 @@ from periplus.models import (
 )
 from periplus.orchestrator import (
     STAGE_ORDER,
+    EditorStageAdapter,
     FakeClock,
     Hermes,
     IllustrationStageAdapter,
@@ -60,6 +62,7 @@ from periplus.orchestrator import (
     SystemClock,
     TransientStageError,
     VerificationStageAdapter,
+    edit_gate,
     research_gate,
     verification_gate,
 )
@@ -277,6 +280,17 @@ class TestDefaultGates:
     def test_verification_gate_passes_when_every_claim_is_checked(self):
         assert verification_gate(verified(claims=[checked_claim()])) is None
 
+    def test_edit_gate_rejects_no_pieces(self):
+        empty = ContentSet(itinerary_id="itinerary-1")
+        assert edit_gate(empty) == "writing produced no content pieces"
+
+    def test_edit_gate_passes_with_pieces(self):
+        non_empty = ContentSet(
+            itinerary_id="itinerary-1",
+            pieces=[ContentPiece(kind="captions", body="See the museum!")],
+        )
+        assert edit_gate(non_empty) is None
+
 
 # --------------------------------------------------------------------------------------
 # Construction: strict stage order
@@ -318,6 +332,7 @@ class TestStageConfiguration:
             Stage.VERIFY,
             Stage.PLAN,
             Stage.WRITE,
+            Stage.EDIT,
             Stage.ILLUSTRATE,
         )
 
@@ -1121,12 +1136,102 @@ class TestRealAdapters:
 
 
 # --------------------------------------------------------------------------------------
-# Illustrate: the stage after write, wired the same way as every other real adapter
+# Edit: the stage after write, wired the same way as every other real adapter
 # --------------------------------------------------------------------------------------
 
 
 def content_set(*, pieces: list[ContentPiece], claims: list[Claim]) -> ContentSet:
     return ContentSet(itinerary_id="itinerary-1", pieces=pieces, claims=claims)
+
+
+class TestEditorStageAdapter:
+    async def test_wraps_the_agent_and_charges_tokens(self):
+        edited_claim = claim(id="c1", subject="Harbour Museum")
+        content = content_set(
+            pieces=[ContentPiece(kind="captions", body="See the museum!", claim_ids=["c1"])],
+            claims=[edited_claim],
+        )
+        edit_reply = json.dumps(
+            {
+                "pieces": [
+                    {
+                        "piece_id": content.pieces[0].id,
+                        "drop": False,
+                        "reason": None,
+                        "title": None,
+                        "body": "The Harbour Museum is free to visit.",
+                        "claim_ids": ["c1"],
+                    }
+                ]
+            }
+        )
+        editor_agent = EditorAgent(
+            llm=ScriptedClient([edit_reply], max_attempts=1),
+            policy=StagePolicy(model="scripted", thinking=Thinking.OFF, temperature=0.0),
+        )
+        adapter = EditorStageAdapter(editor_agent)
+
+        result = await adapter.run(content)
+
+        assert result.artifact.pieces[0].body == "The Harbour Museum is free to visit."
+        assert result.artifact.edited is True
+        assert result.usage.tokens > 0
+        assert len(result.calls) == 1
+
+    async def test_edit_joins_a_six_stage_hermes_run_between_write_and_illustrate(self):
+        edited_claim = checked_claim(id="c1", subject="Harbour Museum")
+        research_fake = FakeStage(Stage.RESEARCH, [result(bundle(claims=[edited_claim]))])
+        verify_fake = FakeStage(Stage.VERIFY, [result(verified(claims=[edited_claim]))])
+        drafted = content_set(
+            pieces=[ContentPiece(kind="captions", body="See the museum!", claim_ids=["c1"])],
+            claims=[edited_claim],
+        )
+        plan_fake = FakeStage(Stage.PLAN, [result(object())])
+        write_fake = FakeStage(Stage.WRITE, [result(drafted)])
+        edit_reply = json.dumps(
+            {
+                "pieces": [
+                    {
+                        "piece_id": drafted.pieces[0].id,
+                        "drop": False,
+                        "reason": None,
+                        "title": None,
+                        "body": "Visit the Harbour Museum: free entry, open daily.",
+                        "claim_ids": ["c1"],
+                    }
+                ]
+            }
+        )
+        editor_agent = EditorAgent(
+            llm=ScriptedClient([edit_reply], max_attempts=1),
+            policy=StagePolicy(model="scripted", thinking=Thinking.OFF, temperature=0.0),
+        )
+        edit_adapter = EditorStageAdapter(editor_agent)
+        illustrate_adapter = IllustrationStageAdapter(IllustrationAgent(provider=None))
+
+        hermes = Hermes(
+            adapters={
+                Stage.RESEARCH: research_fake,
+                Stage.VERIFY: verify_fake,
+                Stage.PLAN: plan_fake,
+                Stage.WRITE: write_fake,
+                Stage.EDIT: edit_adapter,
+                Stage.ILLUSTRATE: illustrate_adapter,
+            },
+            gates={Stage.PLAN: None},
+        )
+
+        run = await hermes.start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert run.content is not None and run.content.pieces[0].body == "See the museum!"
+        assert run.edited is not None
+        assert run.edited.pieces[0].body == "Visit the Harbour Museum: free entry, open daily."
+        # Illustrate ran against Editor's output, not Chronicler's raw draft.
+        assert run.illustrated is not None
+        assert run.illustrated.pieces[0].body == run.edited.pieces[0].body
+        edit_run = run.stage_run(Stage.EDIT)
+        assert edit_run is not None and edit_run.status is RunStatus.SUCCEEDED
 
 
 class TestIllustrationStageAdapter:
@@ -1162,7 +1267,7 @@ class TestIllustrationStageAdapter:
         assert result.artifact.images == []
         assert any("provider configured" in c for c in result.artifact.caveats)
 
-    async def test_illustrate_joins_a_five_stage_hermes_run_and_a_missing_provider_never_fails_it(
+    async def test_illustrate_joins_a_six_stage_hermes_run_and_a_missing_provider_never_fails_it(
         self,
     ):
         illustrated_claim = checked_claim(id="c1", subject="Harbour Museum")
@@ -1176,6 +1281,9 @@ class TestIllustrationStageAdapter:
         )
         plan_fake = FakeStage(Stage.PLAN, [result(object())])
         write_fake = FakeStage(Stage.WRITE, [result(content)])
+        # Edit is a pass-through here — it is exercised on its own terms in
+        # TestEditorStageAdapter below; this test is about illustrate joining the run.
+        edit_fake = FakeStage(Stage.EDIT, [result(content)])
         illustrate_adapter = IllustrationStageAdapter(IllustrationAgent(provider=None))
 
         hermes = Hermes(
@@ -1184,12 +1292,13 @@ class TestIllustrationStageAdapter:
                 Stage.VERIFY: verify_fake,
                 Stage.PLAN: plan_fake,
                 Stage.WRITE: write_fake,
+                Stage.EDIT: edit_fake,
                 Stage.ILLUSTRATE: illustrate_adapter,
             },
             # PLAN's default gate inspects a real Itinerary's .days; the fake artifact
             # here is a placeholder standing in for "some prior stage's output", not a
             # real one — irrelevant to what this test is checking (illustrate joining a
-            # five-stage run and its own, permissive gate).
+            # six-stage run and its own, permissive gate).
             gates={Stage.PLAN: None},
         )
 

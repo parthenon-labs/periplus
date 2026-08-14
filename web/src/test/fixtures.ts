@@ -15,6 +15,7 @@ export const stageOrder = [
   'verify',
   'plan',
   'write',
+  'edit',
   'illustrate',
 ] as const satisfies readonly Stage[]
 
@@ -41,6 +42,13 @@ const runningCounts: Record<Stage, RunSummary['counts']> = {
     content_pieces: 0,
   },
   write: {
+    evidence: 4,
+    claims: 3,
+    verified_claims: 3,
+    itinerary_items: 2,
+    content_pieces: 1,
+  },
+  edit: {
     evidence: 4,
     claims: 3,
     verified_claims: 3,
@@ -101,6 +109,7 @@ export const runningStageSummaries = {
   verify: runningSummary('verify'),
   plan: runningSummary('plan'),
   write: runningSummary('write'),
+  edit: runningSummary('edit'),
   illustrate: runningSummary('illustrate'),
 } satisfies Record<Stage, RunSummary>
 
@@ -442,13 +451,15 @@ export const succeededResult = {
       itinerary_id: 'itinerary-lisbon',
       pieces: [
         {
+          id: 'piece-article',
           kind: 'article',
           title: 'Belém, on foot and on the record',
-          body: 'Begin in Belém at 10:00. The Mosteiro dos Jerónimos anchors the morning.',
-          word_count: 12,
+          body: 'Belém in September is a slow, golden-lit stretch of riverside worth savouring. Begin at 10:00. The Mosteiro dos Jerónimos anchors the morning.',
+          word_count: 24,
           claim_ids: ['claim-hours'],
         },
         {
+          id: 'piece-itinerary',
           kind: 'itinerary_doc',
           title: 'Lisbon, evidence first',
           body: 'Begin in Belém at 10:00. Confirm the current ticket price before booking.',
@@ -475,13 +486,96 @@ export const succeededResult = {
         },
       ],
       caveats: ['The contradicted ticket-price claim was not stated as fact.'],
+      edited: false,
+      created_at: FINISHED_AT,
+    },
+    // Editor cut the "slow, golden-lit stretch" scene-setting sentence — pure atmosphere,
+    // no price, route or duration behind it — and left the rest untouched.
+    edited: {
+      itinerary_id: 'itinerary-lisbon',
+      pieces: [
+        {
+          id: 'piece-article',
+          kind: 'article',
+          title: 'Belém, on foot and on the record',
+          body: 'Begin in Belém at 10:00. The Mosteiro dos Jerónimos anchors the morning.',
+          word_count: 12,
+          claim_ids: ['claim-hours'],
+        },
+        {
+          id: 'piece-itinerary',
+          kind: 'itinerary_doc',
+          title: 'Lisbon, evidence first',
+          body: 'Begin in Belém at 10:00. Confirm the current ticket price before booking.',
+          word_count: 13,
+          claim_ids: ['claim-hours'],
+        },
+      ],
+      claims: [
+        {
+          id: 'claim-hours',
+          subject: 'Mosteiro dos Jerónimos',
+          text: 'The monastery opens at 10:00 on Tuesday.',
+          kind: 'hours',
+          evidence_ids: ['evidence-official-hours'],
+          check: {
+            verdict: 'supported',
+            confidence: 0.98,
+            reason: 'The official visitor information gives a 10:00 opening time.',
+            supporting_evidence_ids: ['evidence-official-hours'],
+            conflicting_evidence_ids: [],
+            model: 'scripted-test-model',
+            checked_at: '2026-08-11T08:02:00Z',
+          },
+        },
+      ],
+      caveats: [
+        'The contradicted ticket-price claim was not stated as fact.',
+        "Cut a sentence of pure atmosphere from the 'article' piece: no price, route, or duration behind it.",
+      ],
+      edited: true,
       created_at: FINISHED_AT,
     },
     illustrated: {
       itinerary_id: 'itinerary-lisbon',
-      pieces: [],
-      claims: [],
+      pieces: [
+        {
+          id: 'piece-article',
+          kind: 'article',
+          title: 'Belém, on foot and on the record',
+          body: 'Begin in Belém at 10:00. The Mosteiro dos Jerónimos anchors the morning.',
+          word_count: 12,
+          claim_ids: ['claim-hours'],
+        },
+        {
+          id: 'piece-itinerary',
+          kind: 'itinerary_doc',
+          title: 'Lisbon, evidence first',
+          body: 'Begin in Belém at 10:00. Confirm the current ticket price before booking.',
+          word_count: 13,
+          claim_ids: ['claim-hours'],
+        },
+      ],
+      claims: [
+        {
+          id: 'claim-hours',
+          subject: 'Mosteiro dos Jerónimos',
+          text: 'The monastery opens at 10:00 on Tuesday.',
+          kind: 'hours',
+          evidence_ids: ['evidence-official-hours'],
+          check: {
+            verdict: 'supported',
+            confidence: 0.98,
+            reason: 'The official visitor information gives a 10:00 opening time.',
+            supporting_evidence_ids: ['evidence-official-hours'],
+            conflicting_evidence_ids: [],
+            model: 'scripted-test-model',
+            checked_at: '2026-08-11T08:02:00Z',
+          },
+        },
+      ],
       caveats: [],
+      edited: true,
       created_at: FINISHED_AT,
       images: [
         {
@@ -560,6 +654,7 @@ export const emptyResult = {
       itinerary_id: 'itinerary-empty',
       pieces: [],
       caveats: [],
+      edited: false,
       created_at: CREATED_AT,
     },
     created_at: CREATED_AT,

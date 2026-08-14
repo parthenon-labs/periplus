@@ -11,6 +11,13 @@ from periplus.agents.content import (
     ContentOutcome,
     PieceDraft,
 )
+from periplus.agents.editor import (
+    EditBatch,
+    Editor,
+    EditorAgent,
+    EditOutcome,
+    PieceEditDraft,
+)
 from periplus.agents.illustration import IllustrationAgent, IllustrationOutcome
 from periplus.agents.navigation import (
     ItemDraft,
@@ -41,6 +48,10 @@ __all__ = [
     "ContentAgent",
     "ContentDraft",
     "ContentOutcome",
+    "EditBatch",
+    "Editor",
+    "EditorAgent",
+    "EditOutcome",
     "IllustrationAgent",
     "IllustrationOutcome",
     "ItemDraft",
@@ -48,6 +59,7 @@ __all__ = [
     "NavigationAgent",
     "NavigationOutcome",
     "PieceDraft",
+    "PieceEditDraft",
     "ResearchAgent",
     "ResearchExtraction",
     "ResearchOutcome",
@@ -58,6 +70,7 @@ __all__ = [
     "VerificationFailure",
     "VerificationOutcome",
     "build_content_agent",
+    "build_editor_agent",
     "build_illustration_agent",
     "build_navigation_agent",
     "build_research_agent",
@@ -99,6 +112,22 @@ def build_content_agent(settings=None) -> ContentAgent:
         max_claims=settings.max_content_claims,
         max_pieces=settings.max_content_pieces,
         max_piece_chars=settings.max_content_piece_chars,
+    )
+
+
+def build_editor_agent(settings=None) -> EditorAgent:
+    """Assemble Editor with its bounded, deterministic revision policy."""
+    from periplus.config import get_settings
+    from periplus.llm import build_client, policy_for
+    from periplus.models import Stage
+
+    settings = settings or get_settings()
+    return EditorAgent(
+        llm=build_client(settings),
+        policy=policy_for(Stage.EDIT, settings),
+        max_pieces=settings.max_edit_pieces,
+        max_piece_chars=settings.max_edit_piece_chars,
+        max_input_chars=settings.max_edit_input_chars,
     )
 
 

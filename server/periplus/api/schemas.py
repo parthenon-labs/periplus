@@ -110,7 +110,11 @@ class RunCounts(BaseModel):
         itinerary_items = (
             sum(len(day.items) for day in run.itinerary.days) if run.itinerary is not None else 0
         )
-        content_pieces = len(run.content.pieces) if run.content is not None else 0
+        # Edit runs after write; once it has, its (possibly cut, possibly tightened)
+        # piece count is the more accurate one to show, the same "prefer the latest
+        # attached artifact" precedent `bundle` above already sets for research/verify/plan.
+        content_set = run.edited or run.content
+        content_pieces = len(content_set.pieces) if content_set is not None else 0
         return cls(
             evidence=evidence_count,
             claims=claims_count,

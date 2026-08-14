@@ -32,6 +32,7 @@ from periplus.orchestrator.hermes import (
 from periplus.orchestrator.stages import (
     DEFAULT_GATES,
     ContentStageAdapter,
+    EditorStageAdapter,
     IllustrationStageAdapter,
     NavigationStageAdapter,
     ResearchStageAdapter,
@@ -40,6 +41,7 @@ from periplus.orchestrator.stages import (
     StageResult,
     VerificationStageAdapter,
     content_gate,
+    edit_gate,
     planning_gate,
     research_gate,
     verification_gate,
@@ -52,6 +54,7 @@ __all__ = [
     "BudgetTracker",
     "Clock",
     "ContentStageAdapter",
+    "EditorStageAdapter",
     "FakeClock",
     "Hermes",
     "HermesError",
@@ -75,6 +78,7 @@ __all__ = [
     "VerificationStageAdapter",
     "build_hermes",
     "content_gate",
+    "edit_gate",
     "planning_gate",
     "research_gate",
     "verification_gate",
@@ -96,9 +100,11 @@ def build_hermes(
     :class:`~periplus.orchestrator.stages.ContentStageAdapter` — so plan and write only
     join the pipeline when a ``brief`` is supplied, i.e. call this once per brief when a
     plan is wanted, the same way :class:`Hermes` itself already runs one ``Run`` per
-    brief. Illustrate joins alongside write for the same reason — it is the stage
-    immediately after Chronicler — even though
-    :class:`~periplus.orchestrator.stages.IllustrationStageAdapter` itself needs no brief.
+    brief. Edit and illustrate join alongside write for the same reason — they are the
+    stages immediately after Chronicler — even though
+    :class:`~periplus.orchestrator.stages.EditorStageAdapter` and
+    :class:`~periplus.orchestrator.stages.IllustrationStageAdapter` themselves need no
+    brief.
 
     ``artifacts`` defaults to a fresh, process-local
     :class:`~periplus.orchestrator.artifacts.InMemoryArtifactStore` when omitted, same as
@@ -115,6 +121,7 @@ def build_hermes(
     """
     from periplus.agents import (
         build_content_agent,
+        build_editor_agent,
         build_illustration_agent,
         build_navigation_agent,
         build_research_agent,
@@ -133,6 +140,7 @@ def build_hermes(
     if brief is not None:
         adapters[Stage.PLAN] = NavigationStageAdapter(build_navigation_agent(settings), brief=brief)
         adapters[Stage.WRITE] = ContentStageAdapter(build_content_agent(settings), brief=brief)
+        adapters[Stage.EDIT] = EditorStageAdapter(build_editor_agent(settings))
         adapters[Stage.ILLUSTRATE] = IllustrationStageAdapter(build_illustration_agent(settings))
     return Hermes(
         adapters=adapters,

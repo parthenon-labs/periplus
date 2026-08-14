@@ -24,15 +24,17 @@ TripBrief          ──research──▶  ResearchBundle
 ResearchBundle     ──verify────▶  VerifiedBundle
 VerifiedBundle     ──plan──────▶  Itinerary
 Itinerary          ──write─────▶  ContentSet
+ContentSet         ──edit──────▶  ContentSet (revised)
 ```
 
-| Artifact         | Produced by | Contains                                                    |
-| ---------------- | ----------- | ----------------------------------------------------------- |
-| `TripBrief`      | user        | destination, dates, party, interests, constraints, budget    |
-| `ResearchBundle` | Explorer    | candidate places, claims, evidence                           |
-| `VerifiedBundle` | Auditor     | the same claims, each with a verdict and confidence          |
-| `Itinerary`      | Navigator   | day-by-day scheduled items, each referencing verified claims |
-| `ContentSet`     | Chronicler  | itinerary document, long-form article, social copy           |
+| Artifact              | Produced by | Contains                                                          |
+| ---------------------- | ----------- | ------------------------------------------------------------------ |
+| `TripBrief`            | user        | destination, dates, party, interests, constraints, budget          |
+| `ResearchBundle`       | Explorer    | candidate places, claims, evidence                                 |
+| `VerifiedBundle`       | Auditor     | the same claims, each with a verdict and confidence                |
+| `Itinerary`            | Navigator   | day-by-day scheduled items, each referencing verified claims       |
+| `ContentSet`           | Chronicler  | itinerary document, long-form article, social copy                 |
+| `ContentSet` (revised) | Editor      | the same pieces, tightened for scannability; nothing added, only cut, reordered, or reworded — grounded to the same claim ids |
 
 ## Why verification is a separate agent
 

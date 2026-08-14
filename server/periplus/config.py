@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     llm_model_verify: str | None = None
     llm_model_plan: str | None = DEFAULT_STRONG_MODEL
     llm_model_write: str | None = DEFAULT_STRONG_MODEL
+    llm_model_edit: str | None = DEFAULT_STRONG_MODEL
 
     llm_timeout_seconds: float = Field(default=120.0, gt=0)
     llm_max_attempts: int = Field(
@@ -129,6 +130,9 @@ class Settings(BaseSettings):
     max_content_claims: int = Field(default=200, ge=1)
     max_content_pieces: int = Field(default=12, ge=1)
     max_content_piece_chars: int = Field(default=8_000, ge=1)
+    max_edit_pieces: int = Field(default=12, ge=1)
+    max_edit_piece_chars: int = Field(default=8_000, ge=1)
+    max_edit_input_chars: int = Field(default=40_000, ge=1)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
     user_agent: str = "periplus/0.1 (+https://github.com/parthenon-labs/periplus)"
 
@@ -174,6 +178,7 @@ class Settings(BaseSettings):
             Stage.VERIFY: self.llm_model_verify,
             Stage.PLAN: self.llm_model_plan,
             Stage.WRITE: self.llm_model_write,
+            Stage.EDIT: self.llm_model_edit,
         }[stage]
         return override or self.llm_model
 
