@@ -43,9 +43,17 @@ export function formatNights(startIso: string, endIso: string): number | null {
   return Math.round(ms / (1000 * 60 * 60 * 24))
 }
 
+// ItineraryItem.start/end are Pydantic `time` values, serialized as ISO 8601
+// "HH:MM:SS" — always with seconds, even though the app only ever schedules on the
+// minute. Drop a trailing ":00" seconds component so "09:30:00" reads as "09:30";
+// anything else (already-short strings, non-zero seconds) passes through untouched.
+function trimSeconds(value: string): string {
+  return value.replace(/^(\d{1,2}:\d{2}):00$/, '$1')
+}
+
 export function formatTimeRange(start?: string | null, end?: string | null): string {
-  if (start && end) return `${start}–${end}`
-  if (start) return start
+  if (start && end) return `${trimSeconds(start)}–${trimSeconds(end)}`
+  if (start) return trimSeconds(start)
   return 'Time to be confirmed'
 }
 

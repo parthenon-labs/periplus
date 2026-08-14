@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 import App from './App'
 import { createQueryClient } from './app/queryClient'
+import { succeededResult, succeededRunSummary } from './test/fixtures'
 
 function renderApp(initialEntries: string[]) {
   const queryClient = createQueryClient()
@@ -38,21 +39,25 @@ describe('App routing', () => {
   })
 
   test('renders the run result page for /runs/:runId/result', async () => {
-    renderApp(['/runs/run-succeeded/result'])
-    expect(await screen.findByRole('heading', { name: 'Lisbon' })).toBeInTheDocument()
+    renderApp([`/runs/${succeededRunSummary.id}/result`])
+    expect(
+      await screen.findByRole('heading', { name: succeededResult.run!.itinerary!.destination! }),
+    ).toBeInTheDocument()
   })
 
   test('the result page links to the illustrated article', async () => {
-    renderApp(['/runs/run-succeeded/result'])
+    renderApp([`/runs/${succeededRunSummary.id}/result`])
     expect(await screen.findByRole('link', { name: /read the illustrated article/i })).toHaveAttribute(
       'href',
-      '/runs/run-succeeded/article',
+      `/runs/${succeededRunSummary.id}/article`,
     )
   })
 
   test('renders the illustrated article page for /runs/:runId/article', async () => {
-    renderApp(['/runs/run-succeeded/article'])
-    expect(await screen.findByRole('heading', { name: 'Belém, on foot and on the record' })).toBeInTheDocument()
-    expect(screen.getByAltText('Mosteiro dos Jerónimos')).toBeInTheDocument()
+    renderApp([`/runs/${succeededRunSummary.id}/article`])
+    const articlePiece = succeededResult.run!.edited!.pieces.find((piece) => piece.kind === 'article')!
+    const firstImage = succeededResult.run!.illustrated!.images[0]!
+    expect(await screen.findByRole('heading', { name: articlePiece.title! })).toBeInTheDocument()
+    expect(screen.getByAltText(firstImage.subject)).toBeInTheDocument()
   })
 })
