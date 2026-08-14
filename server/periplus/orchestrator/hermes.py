@@ -47,6 +47,7 @@ STAGE_ORDER: tuple[Stage, ...] = (
     Stage.VERIFY,
     Stage.PLAN,
     Stage.WRITE,
+    Stage.EDIT,
     Stage.ILLUSTRATE,
 )
 
@@ -179,6 +180,8 @@ def _attach(run: Run, stage: Stage, artifact: object) -> None:
         run.itinerary = artifact
     elif stage is Stage.WRITE:
         run.content = artifact
+    elif stage is Stage.EDIT:
+        run.edited = artifact
     elif stage is Stage.ILLUSTRATE:
         run.illustrated = artifact
 

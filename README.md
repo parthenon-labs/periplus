@@ -36,6 +36,10 @@ Chronicler ───────▶ ContentSet
  writing          itinerary · article · social copy
     │
     ▼
+Editor ───────────▶ ContentSet
+ revision         scannable, grounded to the same claims, nothing added
+    │
+    ▼
 Illustrator ──────▶ Illustration[]
  imagery          visuals grounded in verified subjects
 ```
@@ -152,7 +156,7 @@ npm test
 
 ```text
 server/periplus/
-├── agents/          Explorer, Auditor, Navigator, Chronicler, Illustrator
+├── agents/          Explorer, Auditor, Navigator, Chronicler, Editor, Illustrator
 ├── orchestrator/    Hermes, stage adapters, gates, budgets, artifact retention
 ├── retrieval/       search, fetch, cleaning, caching, provenance
 ├── storage/         runs, stage artifacts, pgvector evidence cache

@@ -41,10 +41,9 @@ class TestSelectionAndGeneration:
     async def test_generates_one_image_per_cited_claim(self):
         provider = ScriptedImages([GeneratedImage(data_base64="aGVsbG8=", model="gpt-image-1")])
         illustrator = agent(provider=provider)
+        piece = make_piece()
 
-        outcome = await illustrator.illustrate(
-            content(pieces=[make_piece()], claims=[make_claim()])
-        )
+        outcome = await illustrator.illustrate(content(pieces=[piece], claims=[make_claim()]))
 
         illustrated = outcome.illustrated
         assert len(illustrated.images) == 1
@@ -58,7 +57,7 @@ class TestSelectionAndGeneration:
         assert "grand 19th-century facade" in image.prompt
         assert len(provider.requests) == 1
         # Everything else on the content set travels through untouched.
-        assert illustrated.pieces == content(pieces=[make_piece()], claims=[make_claim()]).pieces
+        assert illustrated.pieces == [piece]
         assert illustrated.caveats == []
 
     async def test_dedupes_multiple_claims_about_the_same_subject_into_one_image(self):

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from periplus.agents.content import ContentAgent
+from periplus.agents.editor import EditorAgent
 from periplus.agents.illustration import IllustrationAgent
 from periplus.agents.navigation import NavigationAgent
 from periplus.agents.research import ResearchAgent
@@ -99,6 +100,13 @@ def content_gate(content: ContentSet) -> str | None:
     return None
 
 
+#: Reuses content_gate outright: Editor's artifact is the same ContentSet shape Chronicler
+#: produces, just revised, so "no pieces survived" is exactly as fatal here as it is
+#: after writing — an Editor pass that guts every piece is a bug worth failing the run
+#: over, not a silent empty result.
+edit_gate = content_gate
+
+
 #: The default gate per stage. Passing ``gates={Stage.X: None}`` to :class:`Hermes`
 #: disables one explicitly rather than silently.
 #:
@@ -112,6 +120,7 @@ DEFAULT_GATES: dict[Stage, StageGate | None] = {
     Stage.VERIFY: verification_gate,
     Stage.PLAN: planning_gate,
     Stage.WRITE: content_gate,
+    Stage.EDIT: edit_gate,
 }
 
 
@@ -215,13 +224,35 @@ class ContentStageAdapter:
         return StageResult(artifact=outcome.content, usage=usage, calls=list(outcome.calls))
 
 
+class EditorStageAdapter:
+    """Wraps :class:`EditorAgent` behind the narrow :class:`StageAdapter` protocol.
+
+    Like :class:`IllustrationStageAdapter` below, and unlike
+    :class:`NavigationStageAdapter` and :class:`ContentStageAdapter`, this adapter needs
+    nothing bound in at construction time: Editor revises exactly the claims and pieces
+    already sitting on the :class:`~periplus.models.ContentSet` Chronicler produced, not
+    the brief or the itinerary two stage boundaries back.
+    """
+
+    stage = Stage.EDIT
+
+    def __init__(self, agent: EditorAgent) -> None:
+        self._agent = agent
+
+    async def run(self, stage_input: ContentSet) -> StageResult:
+        outcome = await self._agent.edit(stage_input)
+        usage = ResourceUsage(tokens=outcome.total_tokens)
+        return StageResult(artifact=outcome.content, usage=usage, calls=list(outcome.calls))
+
+
 class IllustrationStageAdapter:
     """Wraps :class:`IllustrationAgent` behind the narrow :class:`StageAdapter` protocol.
 
     Unlike :class:`NavigationStageAdapter` and :class:`ContentStageAdapter`, this adapter
     needs nothing bound in at construction time: Illustrator's prompts come from the
-    claims Chronicler already carried onto its :class:`~periplus.models.ContentSet` (see
-    ``ContentSet.claims``), not from the brief or the itinerary two stage boundaries back.
+    claims Editor (or, if Editor is not configured, Chronicler directly) already carried
+    onto its :class:`~periplus.models.ContentSet` (see ``ContentSet.claims``), not from
+    the brief or the itinerary two stage boundaries back.
     """
 
     stage = Stage.ILLUSTRATE

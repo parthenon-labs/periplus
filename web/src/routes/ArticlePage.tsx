@@ -79,9 +79,15 @@ function ImageStrip({ images, aspect = 'aspect-[16/9]' }: { images: Illustration
   )
 }
 
-// Splits a piece's body into paragraphs and threads its images between them, spread
-// evenly by position, so a piece with images reads as text-image-text rather than a
-// picture block dumped above an unbroken wall of copy.
+// Splits a piece's body into paragraphs and threads its images between them, so a piece
+// with images reads as text-image-text rather than a picture block dumped above an
+// unbroken wall of copy.
+//
+// An image is placed right after the paragraph that actually names its subject — a
+// photo of the Prado sits by the paragraph discussing the Prado, not at some
+// structurally-even position that might land beside unrelated text. Only an image whose
+// subject appears nowhere in the piece falls back to an even spread across the
+// paragraphs, so it still lands near the prose rather than clustering at the end.
 function interleavePieceContent(body: string, images: Illustration[]) {
   const paragraphs = body
     .split(/\n{2,}/)
@@ -102,25 +108,31 @@ function interleavePieceContent(body: string, images: Illustration[]) {
     return blocks
   }
 
-  // Slot i lands after paragraph position[i] (1-indexed), spread evenly across the
-  // available gaps and never before the opening paragraph.
-  const positions = images.map((_, i) =>
-    Math.min(paragraphs.length, Math.max(1, Math.round(((i + 1) * paragraphs.length) / (images.length + 1)))),
-  )
+  const claimed = new Set<number>()
+  const byPosition = new Map<number, Illustration[]>()
+  images.forEach((image, i) => {
+    const subject = image.subject.trim().toLowerCase()
+    const matchIndex = subject
+      ? paragraphs.findIndex((para, idx) => !claimed.has(idx) && para.toLowerCase().includes(subject))
+      : -1
+    const position =
+      matchIndex !== -1
+        ? matchIndex + 1
+        : Math.min(paragraphs.length, Math.max(1, Math.round(((i + 1) * paragraphs.length) / (images.length + 1))))
+    if (matchIndex !== -1) claimed.add(matchIndex)
+    const bucket = byPosition.get(position) ?? []
+    bucket.push(image)
+    byPosition.set(position, bucket)
+  })
 
-  let imgIdx = 0
   paragraphs.forEach((para, pIdx) => {
     blocks.push(
       <p key={`p-${pIdx}`} className="whitespace-pre-line">
         {para}
       </p>,
     )
-    const group: Illustration[] = []
-    while (imgIdx < images.length && positions[imgIdx] === pIdx + 1) {
-      group.push(images[imgIdx])
-      imgIdx++
-    }
-    if (group.length > 0) blocks.push(<ImageStrip key={`img-${pIdx}`} images={group} />)
+    const group = byPosition.get(pIdx + 1)
+    if (group?.length) blocks.push(<ImageStrip key={`img-${pIdx}`} images={group} />)
   })
 
   return blocks
@@ -133,9 +145,16 @@ export function ArticlePage() {
   const run = result?.run
   const brief = run?.brief
   const destination = run?.itinerary?.destination
-  const pieces = useMemo(() => sortPieces(run?.content?.pieces ?? []), [run?.content?.pieces])
+  // Editor runs after Chronicler and before Illustrator — its (possibly cut, possibly
+  // tightened) pieces are what a reader should see once they exist. A run replayed from
+  // before edit ran, or one where edit is not configured, still has Chronicler's own
+  // draft to fall back to.
+  const contentSet = run?.edited ?? run?.content
+  const pieces = useMemo(() => sortPieces(contentSet?.pieces ?? []), [contentSet?.pieces])
   const images = useMemo(() => run?.illustrated?.images ?? [], [run?.illustrated?.images])
-  const caveats = run?.illustrated?.caveats ?? []
+  // Editor's caveats record what it cut or couldn't fix; Illustrator's record what it
+  // couldn't picture. Both matter to a reader deciding how much to trust the page.
+  const caveats = [...(run?.edited?.caveats ?? []), ...(run?.illustrated?.caveats ?? [])]
 
   // One representative image per claim it illustrates, so a piece that cites the claim
   // can show the picture that goes with it — the same binding Illustrator itself made,
@@ -197,6 +216,7 @@ export function ArticlePage() {
 
             <div className="flex flex-col gap-12">
               {pieces.map((piece, index) => {
+                const key = piece.id ?? index
                 // A piece can cite several claim ids that resolve to the same subject's
                 // one representative image (Illustrator dedupes per subject, not per
                 // claim) — dedupe here too, or that image renders twice back-to-back.
@@ -211,7 +231,7 @@ export function ArticlePage() {
                 for (const image of piecesImages) usedImageIds.add(image.id!)
 
                 return (
-                  <article key={index} className="flex flex-col gap-4">
+                  <article key={key} className="flex flex-col gap-4">
                     <div className="flex items-baseline gap-2">
                       <h2 className="chart-tick uppercase text-bronze-deep">{PIECE_LABEL[piece.kind] ?? piece.kind}</h2>
                       {piece.word_count ? <span className="chart-tick text-ink-faint">{piece.word_count} words</span> : null}
@@ -237,7 +257,7 @@ export function ArticlePage() {
 
               {caveats.length > 0 ? (
                 <div className="rounded-xl border border-contradicted/30 bg-contradicted-tint/60 px-4 py-3.5">
-                  <h4 className="mb-2 text-sm font-medium text-contradicted">Illustrator caveats</h4>
+                  <h4 className="mb-2 text-sm font-medium text-contradicted">Editing and illustration notes</h4>
                   <ul className="flex flex-col gap-1.5 text-sm text-ink">
                     {caveats.map((c, i) => (
                       <li key={i}>{c}</li>
