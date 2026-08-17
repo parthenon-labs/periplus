@@ -1,0 +1,90 @@
+{
+  "id": "grounded-baseline",
+  "description": "Three well-sourced claims from two fresh pages. The suite's control case: if this one moves, something changed in extraction, dedup or verdict handling rather than in the thing a later case is probing.",
+  "tags": ["baseline", "grounding"],
+  "stages": ["research", "verify"],
+  "as_of": "2026-08-17",
+  "brief": {
+    "destination": "Sydney",
+    "start_date": "2026-10-01",
+    "end_date": "2026-10-03",
+    "must_see": ["Sydney Opera House"],
+    "interests": ["architecture"]
+  },
+  "corpus": [
+    {
+      "url": "https://www.sydneyoperahouse.com/visit/tours",
+      "title": "Tours and visitor information",
+      "source_kind": "official",
+      "published_at": "2026-06-01",
+      "text": "Visitor information. The Sydney Opera House is open daily from 9am to 5pm. Guided tours run every thirty minutes throughout the day, and a one-hour tour costs AUD 45 per adult. Tours depart from the Lower Concourse box office, which opens fifteen minutes before the first departure. Step-free access is available at the Western Foyer entrance, and assistance dogs are welcome in all public areas of the building."
+    },
+    {
+      "url": "https://transportnsw.info/stops/circular-quay",
+      "title": "Circular Quay station",
+      "source_kind": "government",
+      "published_at": "2026-05-20",
+      "text": "Getting to Circular Quay. Trains to Circular Quay station run every ten minutes on weekdays and every fifteen minutes on weekends. The station is a seven-minute walk from the Sydney Opera House forecourt, following the harbour promenade past the ferry wharves. Lifts serve all platforms."
+    }
+  ],
+  "model": {
+    "research": [
+      {
+        "places": [
+          {
+            "name": "Sydney Opera House",
+            "kind": "sight",
+            "summary": "The landmark named in the brief, with published hours and tour pricing.",
+            "tags": ["architecture"],
+            "claims": [
+              {
+                "subject": "Sydney Opera House",
+                "text": "The Sydney Opera House is open daily from 9am to 5pm.",
+                "kind": "hours",
+                "source_index": 0,
+                "quote": "The Sydney Opera House is open daily from 9am to 5pm."
+              },
+              {
+                "subject": "Sydney Opera House",
+                "text": "A one-hour guided tour of the Sydney Opera House costs AUD 45 per adult.",
+                "kind": "price",
+                "source_index": 0,
+                "quote": "a one-hour tour costs AUD 45 per adult"
+              }
+            ]
+          },
+          {
+            "name": "Circular Quay",
+            "kind": "transport",
+            "summary": "The nearest station to the Opera House forecourt.",
+            "tags": ["transit"],
+            "claims": [
+              {
+                "subject": "Circular Quay",
+                "text": "Circular Quay station is a seven-minute walk from the Sydney Opera House forecourt.",
+                "kind": "transit",
+                "source_index": 1,
+                "quote": "The station is a seven-minute walk from the Sydney Opera House forecourt"
+              }
+            ]
+          }
+        ],
+        "gaps": []
+      }
+    ],
+    "labels": [
+      { "match": "open daily from 9am", "verdict": "supported", "confidence": 0.95, "reason": "The official page states these hours verbatim." },
+      { "match": "costs AUD 45 per adult", "verdict": "supported", "confidence": 0.9, "reason": "The official page states the tour price." },
+      { "match": "seven-minute walk", "verdict": "supported", "confidence": 0.9, "reason": "The transport authority page states the walking time." }
+    ]
+  },
+  "expect": [
+    { "metric": "claims", "min": 3, "max": 3, "note": "All three quotes are verbatim, so none may be dropped." },
+    { "metric": "citation_failures", "max": 0, "note": "The invariant the pipeline exists to hold." },
+    { "metric": "unverified_claims", "max": 0 },
+    { "metric": "verdict.supported", "min": 3, "max": 3 },
+    { "metric": "gap_rate", "max": 0 },
+    { "metric": "stage.verify.attempts", "min": 1, "max": 1, "note": "No retries on a clean case." },
+    { "metric": "failed_model_calls", "max": 0 }
+  ]
+}

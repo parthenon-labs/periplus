@@ -1,0 +1,64 @@
+{
+  "id": "rejects-tidied-quote",
+  "description": "The failure mode exact-quote grounding exists for: a model that quotes its source almost correctly. One claim quotes the page verbatim; the other tidies 'AUD 30' into 'AUD 30.00' and reformats the closing day. Both look like provenance. Only one is.",
+  "tags": ["grounding", "regression"],
+  "stages": ["research", "verify"],
+  "as_of": "2026-08-17",
+  "brief": {
+    "destination": "Melbourne",
+    "start_date": "2026-11-05",
+    "end_date": "2026-11-07",
+    "must_see": ["Royal Botanic Gardens Victoria"]
+  },
+  "corpus": [
+    {
+      "url": "https://www.rbg.vic.gov.au/melbourne-gardens/visit",
+      "title": "Visit Melbourne Gardens",
+      "source_kind": "government",
+      "published_at": "2026-07-02",
+      "text": "Melbourne Gardens is open every day of the year from 7.30am until sunset. Entry to the gardens is free. The Aboriginal Heritage Walk runs on Thursdays and Sundays and costs AUD 30 per adult, and bookings are required at least one day ahead. The Visitor Centre is closed on Christmas Day."
+    }
+  ],
+  "model": {
+    "research": [
+      {
+        "places": [
+          {
+            "name": "Royal Botanic Gardens Victoria",
+            "kind": "outdoors",
+            "summary": "The garden named in the brief; free entry, with one paid guided walk.",
+            "tags": ["gardens"],
+            "claims": [
+              {
+                "subject": "Royal Botanic Gardens Victoria",
+                "text": "Entry to Melbourne Gardens is free.",
+                "kind": "price",
+                "source_index": 0,
+                "quote": "Entry to the gardens is free."
+              },
+              {
+                "subject": "Royal Botanic Gardens Victoria",
+                "text": "The Aboriginal Heritage Walk costs AUD 30.00 per adult.",
+                "kind": "price",
+                "source_index": 0,
+                "quote": "costs AUD 30.00 per adult"
+              }
+            ]
+          }
+        ],
+        "gaps": []
+      }
+    ],
+    "labels": [
+      { "match": "Entry to Melbourne Gardens is free", "verdict": "supported", "confidence": 0.95, "reason": "The page states entry is free." }
+    ]
+  },
+  "expect": [
+    { "metric": "claims", "min": 1, "max": 1, "note": "The tidied quote must not survive; a rewritten number is not a citation." },
+    { "metric": "evidence", "min": 1, "max": 1 },
+    { "metric": "reported_gaps", "min": 1, "note": "The rejection is reported, never silently dropped." },
+    { "metric": "citation_failures", "max": 0 },
+    { "metric": "verdict.supported", "min": 1, "max": 1 },
+    { "metric": "gap_rate", "max": 0 }
+  ]
+}

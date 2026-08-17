@@ -94,6 +94,7 @@ query, fetch, or wall-clock ceilings one stage at a time.
 | Evidence reuse | Optional local embeddings and pgvector lookup before a repeated network fetch |
 | Provider isolation | Models, search, maps, and image generation each sit behind independent seams |
 | Testability | Scripted model/search providers, in-process HTTP fixtures, fake clocks, and no-network tests |
+| Evaluation | Golden-set cases over fixed corpora, threshold assertions on grounding and cost metrics, committed before/after reports |
 
 ## Failure is represented, not hidden
 
@@ -152,6 +153,38 @@ npm run typecheck
 npm test
 ```
 
+## Evaluate offline
+
+Tests establish that the pipeline does what it was told. They cannot establish whether
+what it was told is any good. That question needs the same fixed inputs measured before
+and after a change:
+
+```sh
+cd server
+.venv/bin/python -m periplus.evals                      # run the suite, print the report
+.venv/bin/python -m periplus.evals --out evals/reports   # write report.json and report.md
+.venv/bin/python -m periplus.evals --diff evals/reports/baseline.json
+```
+
+Each case in [`server/evals/cases/`](server/evals/cases) pins a trip brief, the exact
+corpus retrieval will serve, ground-truth verdict labels, a frozen `as_of` date, and
+threshold assertions on [`RunMetrics`](server/periplus/evals/metrics.py) — gap rate,
+verdict distribution, citation integrity, tokens, spend, retries. Assertions are ranges,
+never literal model output: a suite that fails every day for cosmetic reasons is switched
+off within a week.
+
+Only the two seams that leave the process are replaced, so a case exercises the real
+orchestrator, agents, gates and budget accounting. Exit status is non-zero on any unmet
+threshold, and the run needs no API key, no network and no database.
+
+What this measures and what it does not, stated plainly: with the offline oracle answering
+verification, model judgement is held constant, so the suite measures the *pipeline* —
+exact-quote grounding, freshness downgrades, no-evidence handling, batch and budget
+ceilings, gate rejection, end-to-end citation integrity. Judging whether a prompt edit made
+the model a better auditor requires the live provider answering the same corpora; the
+metrics and report layers are provider-agnostic so that mode slots in without rewriting the
+golden set.
+
 ## Repository map
 
 ```text
@@ -161,7 +194,12 @@ server/periplus/
 ├── retrieval/       search, fetch, cleaning, caching, provenance
 ├── storage/         runs, stage artifacts, pgvector evidence cache
 ├── llm/             provider seam, structured output, repair, usage accounting
+├── evals/           golden-set harness, metrics, thresholds, before/after reports
 └── api/             run submission, progress, recovery, result contracts
+
+server/evals/
+├── cases/           committed golden set, one JSON case per file
+└── reports/         committed baseline report, and the target for --out
 
 web/src/
 ├── routes/          trip brief, live run, and generated results

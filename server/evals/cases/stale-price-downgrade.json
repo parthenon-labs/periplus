@@ -1,0 +1,65 @@
+{
+  "id": "stale-price-downgrade",
+  "description": "A price claim whose only evidence is two and a half years old. The oracle labels it supported — the downgrade to 'stale' is entirely code's decision, taken against the frozen as_of date, which is what makes this case a real assertion rather than a restatement of its own label.",
+  "tags": ["freshness", "regression"],
+  "stages": ["research", "verify"],
+  "as_of": "2026-08-17",
+  "brief": {
+    "destination": "Madrid",
+    "start_date": "2026-09-12",
+    "end_date": "2026-09-14",
+    "must_see": ["Museo del Prado"]
+  },
+  "corpus": [
+    {
+      "url": "https://www.museodelprado.es/en/visit-the-museum",
+      "title": "Visit the museum",
+      "source_kind": "official",
+      "published_at": "2024-01-10",
+      "text": "General admission to the Museo del Prado costs 15 euros. The museum is open from Monday to Saturday, 10am to 8pm, and on Sundays and public holidays from 10am to 7pm. Admission is free during the last two hours of opening. The Jeronimos entrance is the main access point for individual visitors."
+    }
+  ],
+  "model": {
+    "research": [
+      {
+        "places": [
+          {
+            "name": "Museo del Prado",
+            "kind": "museum",
+            "summary": "The museum named in the brief; the only source found is an old page.",
+            "tags": ["art"],
+            "claims": [
+              {
+                "subject": "Museo del Prado",
+                "text": "General admission to the Museo del Prado costs 15 euros.",
+                "kind": "price",
+                "source_index": 0,
+                "quote": "General admission to the Museo del Prado costs 15 euros."
+              },
+              {
+                "subject": "Museo del Prado",
+                "text": "The Jeronimos entrance is the main access point for individual visitors.",
+                "kind": "location",
+                "source_index": 0,
+                "quote": "The Jeronimos entrance is the main access point for individual visitors."
+              }
+            ]
+          }
+        ],
+        "gaps": []
+      }
+    ],
+    "labels": [
+      { "match": "costs 15 euros", "verdict": "supported", "confidence": 0.95, "reason": "The official page states this price." },
+      { "match": "Jeronimos entrance", "verdict": "supported", "confidence": 0.9, "reason": "The official page names this entrance." }
+    ]
+  },
+  "expect": [
+    { "metric": "claims", "min": 2, "max": 2 },
+    { "metric": "verdict.stale", "min": 1, "max": 1, "note": "The price claim ages out of its 180-day window." },
+    { "metric": "verdict.supported", "min": 1, "max": 1, "note": "A location claim never expires, so it stays supported." },
+    { "metric": "gap_rate", "max": 0, "note": "Stale is usable-with-a-caveat, not a gap." },
+    { "metric": "citation_failures", "max": 0 },
+    { "metric": "unverified_claims", "max": 0 }
+  ]
+}

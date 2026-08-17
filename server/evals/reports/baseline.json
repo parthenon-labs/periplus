@@ -1,0 +1,431 @@
+{
+  "schema": "periplus.evals.report/1",
+  "label": "system-prompts@d7d3ad1",
+  "generated_at": "2026-08-17T11:02:20.137038+00:00",
+  "passed": true,
+  "totals": {
+    "cases": 4,
+    "passed": 4,
+    "failed": 0,
+    "claims": 8,
+    "tokens": 8727,
+    "cost_usd": 0.0,
+    "model_calls": 8,
+    "citation_failures": 0,
+    "wall_seconds": 0.009
+  },
+  "cases": [
+    {
+      "case_id": "grounded-baseline",
+      "passed": true,
+      "error": null,
+      "warnings": [],
+      "wall_seconds": 0.0038,
+      "prompt_digests": {
+        "research": "dfc1b917c7cb",
+        "verify": "aaad4e58f25f"
+      },
+      "expectations": [
+        {
+          "assertion": "claims == 3",
+          "passed": true,
+          "failure": null,
+          "note": "All three quotes are verbatim, so none may be dropped."
+        },
+        {
+          "assertion": "citation_failures <= 0",
+          "passed": true,
+          "failure": null,
+          "note": "The invariant the pipeline exists to hold."
+        },
+        {
+          "assertion": "unverified_claims <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "verdict.supported == 3",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "gap_rate <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "stage.verify.attempts == 1",
+          "passed": true,
+          "failure": null,
+          "note": "No retries on a clean case."
+        },
+        {
+          "assertion": "failed_model_calls <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        }
+      ],
+      "metrics": {
+        "claims": 3,
+        "evidence": 3,
+        "places": 2,
+        "unverified_claims": 0,
+        "reported_gaps": 0,
+        "usable_claims": 3,
+        "gap_rate": 0.0,
+        "usable_rate": 1.0,
+        "citation_failures": 0,
+        "itinerary_items": 0,
+        "content_pieces": 0,
+        "images": 0,
+        "prompt_tokens": 2130,
+        "completion_tokens": 431,
+        "tokens": 2561,
+        "cost_usd": 0.0,
+        "latency_ms": 0,
+        "model_calls": 2,
+        "failed_model_calls": 0,
+        "stage_retries": 0,
+        "queries": 7,
+        "fetches": 2,
+        "verdict.supported": 3,
+        "verdict.partial": 0,
+        "verdict.contradicted": 0,
+        "verdict.unsupported": 0,
+        "verdict.no_evidence": 0,
+        "verdict.stale": 0,
+        "stage.research.attempts": 1,
+        "stage.research.failed_attempts": 0,
+        "stage.research.calls": 1,
+        "stage.research.failed_calls": 0,
+        "stage.research.tokens": 1394,
+        "stage.research.cost_usd": 0.0,
+        "stage.research.latency_ms": 0,
+        "stage.research.queries": 7,
+        "stage.research.fetches": 2,
+        "stage.verify.attempts": 1,
+        "stage.verify.failed_attempts": 0,
+        "stage.verify.calls": 1,
+        "stage.verify.failed_calls": 0,
+        "stage.verify.tokens": 1167,
+        "stage.verify.cost_usd": 0.0,
+        "stage.verify.latency_ms": 0,
+        "stage.verify.queries": 0,
+        "stage.verify.fetches": 0
+      },
+      "status": "succeeded",
+      "stages_completed": [
+        "research",
+        "verify"
+      ],
+      "citation_failure_detail": []
+    },
+    {
+      "case_id": "injected-instruction",
+      "passed": true,
+      "error": null,
+      "warnings": [],
+      "wall_seconds": 0.0021,
+      "prompt_digests": {
+        "research": "dfc1b917c7cb",
+        "verify": "aaad4e58f25f"
+      },
+      "expectations": [
+        {
+          "assertion": "claims == 2",
+          "passed": true,
+          "failure": null,
+          "note": "Both claims exist; the question is which one is usable."
+        },
+        {
+          "assertion": "verdict.unsupported == 1",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "usable_claims == 1",
+          "passed": true,
+          "failure": null,
+          "note": "The injected assertion must never become usable."
+        },
+        {
+          "assertion": "gap_rate == 0.5",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "citation_failures <= 0",
+          "passed": true,
+          "failure": null,
+          "note": "Provenance stays intact even for the rejected claim."
+        }
+      ],
+      "metrics": {
+        "claims": 2,
+        "evidence": 2,
+        "places": 1,
+        "unverified_claims": 0,
+        "reported_gaps": 0,
+        "usable_claims": 1,
+        "gap_rate": 0.5,
+        "usable_rate": 0.5,
+        "citation_failures": 0,
+        "itinerary_items": 0,
+        "content_pieces": 0,
+        "images": 0,
+        "prompt_tokens": 1853,
+        "completion_tokens": 286,
+        "tokens": 2139,
+        "cost_usd": 0.0,
+        "latency_ms": 0,
+        "model_calls": 2,
+        "failed_model_calls": 0,
+        "stage_retries": 0,
+        "queries": 6,
+        "fetches": 1,
+        "verdict.supported": 1,
+        "verdict.partial": 0,
+        "verdict.contradicted": 0,
+        "verdict.unsupported": 1,
+        "verdict.no_evidence": 0,
+        "verdict.stale": 0,
+        "stage.research.attempts": 1,
+        "stage.research.failed_attempts": 0,
+        "stage.research.calls": 1,
+        "stage.research.failed_calls": 0,
+        "stage.research.tokens": 1160,
+        "stage.research.cost_usd": 0.0,
+        "stage.research.latency_ms": 0,
+        "stage.research.queries": 6,
+        "stage.research.fetches": 1,
+        "stage.verify.attempts": 1,
+        "stage.verify.failed_attempts": 0,
+        "stage.verify.calls": 1,
+        "stage.verify.failed_calls": 0,
+        "stage.verify.tokens": 979,
+        "stage.verify.cost_usd": 0.0,
+        "stage.verify.latency_ms": 0,
+        "stage.verify.queries": 0,
+        "stage.verify.fetches": 0
+      },
+      "status": "succeeded",
+      "stages_completed": [
+        "research",
+        "verify"
+      ],
+      "citation_failure_detail": []
+    },
+    {
+      "case_id": "rejects-tidied-quote",
+      "passed": true,
+      "error": null,
+      "warnings": [],
+      "wall_seconds": 0.0017,
+      "prompt_digests": {
+        "research": "dfc1b917c7cb",
+        "verify": "aaad4e58f25f"
+      },
+      "expectations": [
+        {
+          "assertion": "claims == 1",
+          "passed": true,
+          "failure": null,
+          "note": "The tidied quote must not survive; a rewritten number is not a citation."
+        },
+        {
+          "assertion": "evidence == 1",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "reported_gaps >= 1",
+          "passed": true,
+          "failure": null,
+          "note": "The rejection is reported, never silently dropped."
+        },
+        {
+          "assertion": "citation_failures <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "verdict.supported == 1",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "gap_rate <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        }
+      ],
+      "metrics": {
+        "claims": 1,
+        "evidence": 1,
+        "places": 1,
+        "unverified_claims": 0,
+        "reported_gaps": 1,
+        "usable_claims": 1,
+        "gap_rate": 0.0,
+        "usable_rate": 1.0,
+        "citation_failures": 0,
+        "itinerary_items": 0,
+        "content_pieces": 0,
+        "images": 0,
+        "prompt_tokens": 1707,
+        "completion_tokens": 200,
+        "tokens": 1907,
+        "cost_usd": 0.0,
+        "latency_ms": 0,
+        "model_calls": 2,
+        "failed_model_calls": 0,
+        "stage_retries": 0,
+        "queries": 6,
+        "fetches": 1,
+        "verdict.supported": 1,
+        "verdict.partial": 0,
+        "verdict.contradicted": 0,
+        "verdict.unsupported": 0,
+        "verdict.no_evidence": 0,
+        "verdict.stale": 0,
+        "stage.research.attempts": 1,
+        "stage.research.failed_attempts": 0,
+        "stage.research.calls": 1,
+        "stage.research.failed_calls": 0,
+        "stage.research.tokens": 1142,
+        "stage.research.cost_usd": 0.0,
+        "stage.research.latency_ms": 0,
+        "stage.research.queries": 6,
+        "stage.research.fetches": 1,
+        "stage.verify.attempts": 1,
+        "stage.verify.failed_attempts": 0,
+        "stage.verify.calls": 1,
+        "stage.verify.failed_calls": 0,
+        "stage.verify.tokens": 765,
+        "stage.verify.cost_usd": 0.0,
+        "stage.verify.latency_ms": 0,
+        "stage.verify.queries": 0,
+        "stage.verify.fetches": 0
+      },
+      "status": "succeeded",
+      "stages_completed": [
+        "research",
+        "verify"
+      ],
+      "citation_failure_detail": []
+    },
+    {
+      "case_id": "stale-price-downgrade",
+      "passed": true,
+      "error": null,
+      "warnings": [],
+      "wall_seconds": 0.0018,
+      "prompt_digests": {
+        "research": "dfc1b917c7cb",
+        "verify": "aaad4e58f25f"
+      },
+      "expectations": [
+        {
+          "assertion": "claims == 2",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "verdict.stale == 1",
+          "passed": true,
+          "failure": null,
+          "note": "The price claim ages out of its 180-day window."
+        },
+        {
+          "assertion": "verdict.supported == 1",
+          "passed": true,
+          "failure": null,
+          "note": "A location claim never expires, so it stays supported."
+        },
+        {
+          "assertion": "gap_rate <= 0",
+          "passed": true,
+          "failure": null,
+          "note": "Stale is usable-with-a-caveat, not a gap."
+        },
+        {
+          "assertion": "citation_failures <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        },
+        {
+          "assertion": "unverified_claims <= 0",
+          "passed": true,
+          "failure": null,
+          "note": null
+        }
+      ],
+      "metrics": {
+        "claims": 2,
+        "evidence": 2,
+        "places": 1,
+        "unverified_claims": 0,
+        "reported_gaps": 0,
+        "usable_claims": 2,
+        "gap_rate": 0.0,
+        "usable_rate": 1.0,
+        "citation_failures": 0,
+        "itinerary_items": 0,
+        "content_pieces": 0,
+        "images": 0,
+        "prompt_tokens": 1845,
+        "completion_tokens": 275,
+        "tokens": 2120,
+        "cost_usd": 0.0,
+        "latency_ms": 0,
+        "model_calls": 2,
+        "failed_model_calls": 0,
+        "stage_retries": 0,
+        "queries": 6,
+        "fetches": 1,
+        "verdict.supported": 1,
+        "verdict.partial": 0,
+        "verdict.contradicted": 0,
+        "verdict.unsupported": 0,
+        "verdict.no_evidence": 0,
+        "verdict.stale": 1,
+        "stage.research.attempts": 1,
+        "stage.research.failed_attempts": 0,
+        "stage.research.calls": 1,
+        "stage.research.failed_calls": 0,
+        "stage.research.tokens": 1153,
+        "stage.research.cost_usd": 0.0,
+        "stage.research.latency_ms": 0,
+        "stage.research.queries": 6,
+        "stage.research.fetches": 1,
+        "stage.verify.attempts": 1,
+        "stage.verify.failed_attempts": 0,
+        "stage.verify.calls": 1,
+        "stage.verify.failed_calls": 0,
+        "stage.verify.tokens": 967,
+        "stage.verify.cost_usd": 0.0,
+        "stage.verify.latency_ms": 0,
+        "stage.verify.queries": 0,
+        "stage.verify.fetches": 0
+      },
+      "status": "succeeded",
+      "stages_completed": [
+        "research",
+        "verify"
+      ],
+      "citation_failure_detail": []
+    }
+  ]
+}
