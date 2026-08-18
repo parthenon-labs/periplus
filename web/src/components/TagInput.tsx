@@ -7,12 +7,14 @@ export function TagInput({
   values,
   onChange,
   placeholder,
+  disabled = false,
 }: {
   label: string
   hint?: string
   values: string[]
   onChange: (next: string[]) => void
   placeholder?: string
+  disabled?: boolean
 }) {
   const [draft, setDraft] = useState('')
 
@@ -44,24 +46,31 @@ export function TagInput({
             className="inline-flex items-center gap-1 rounded-full bg-bronze-tint px-2.5 py-1 text-xs text-bronze-deep"
           >
             {tag}
-            <button
-              type="button"
-              onClick={() => onChange(values.filter((t) => t !== tag))}
-              aria-label={`Remove ${tag}`}
-              className="rounded-full text-bronze-deep/70 hover:text-bronze-deep"
-            >
-              <CloseIcon className="size-3" />
-            </button>
+            {disabled ? null : (
+              <button
+                type="button"
+                onClick={() => onChange(values.filter((t) => t !== tag))}
+                aria-label={`Remove ${tag}`}
+                className="rounded-full text-bronze-deep/70 hover:text-bronze-deep"
+              >
+                <CloseIcon className="size-3" />
+              </button>
+            )}
           </span>
         ))}
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={commit}
-          placeholder={values.length === 0 ? placeholder : undefined}
-          className="min-w-[8ch] flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-ink-faint"
-        />
+        {disabled && values.length === 0 ? (
+          <span className="py-1 text-sm text-ink-faint">None specified</span>
+        ) : null}
+        {disabled ? null : (
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+            onBlur={commit}
+            placeholder={values.length === 0 ? placeholder : undefined}
+            className="min-w-[8ch] flex-1 bg-transparent py-1 text-sm outline-none placeholder:text-ink-faint"
+          />
+        )}
       </span>
     </label>
   )

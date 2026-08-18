@@ -54,6 +54,7 @@ export function DatePicker({
   minIso,
   placeholder = 'Select date',
   className,
+  disabled = false,
 }: {
   id?: string
   label: string
@@ -62,6 +63,7 @@ export function DatePicker({
   minIso?: string
   placeholder?: string
   className?: string
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const selected = parseISO(value)
@@ -89,6 +91,7 @@ export function DatePicker({
   }, [open])
 
   const handleOpenChange = (next: boolean) => {
+    if (next && disabled) return
     if (next) {
       setViewMonth(startOfDay(selected ?? min ?? new Date()))
       setFocusIso(toISO(selected ?? min ?? new Date()))
@@ -121,7 +124,8 @@ export function DatePicker({
         <button
           id={id}
           type="button"
-          className={`tabular flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink outline-none focus:border-bronze-deep ${className ?? ''}`}
+          disabled={disabled}
+          className={`tabular flex items-center gap-2 rounded-lg border border-line-strong bg-paper px-3 py-2 text-sm text-ink outline-none focus:border-bronze-deep disabled:cursor-not-allowed disabled:opacity-70 ${className ?? ''}`}
         >
           <CalendarIcon className="size-4 shrink-0 text-bronze" />
           <span className={selected ? 'text-ink' : 'text-ink-faint'}>

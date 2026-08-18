@@ -6,12 +6,14 @@ export function Stepper({
   min = 0,
   max = 99,
   onChange,
+  disabled = false,
 }: {
   label: string
   value: number
   min?: number
   max?: number
   onChange: (next: number) => void
+  disabled?: boolean
 }) {
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border border-line bg-paper px-3 py-2.5">
@@ -20,7 +22,7 @@ export function Stepper({
         <button
           type="button"
           onClick={() => onChange(Math.max(min, value - 1))}
-          disabled={value <= min}
+          disabled={disabled || value <= min}
           aria-label={`Decrease ${label}`}
           className="flex size-7 items-center justify-center rounded-full border border-line-strong text-bronze-deep disabled:opacity-30"
         >
@@ -30,7 +32,7 @@ export function Stepper({
         <button
           type="button"
           onClick={() => onChange(Math.min(max, value + 1))}
-          disabled={value >= max}
+          disabled={disabled || value >= max}
           aria-label={`Increase ${label}`}
           className="flex size-7 items-center justify-center rounded-full border border-line-strong text-bronze-deep disabled:opacity-30"
         >
