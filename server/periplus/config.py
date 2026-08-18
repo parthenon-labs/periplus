@@ -9,11 +9,22 @@ agent code means the trade-off can be retuned without touching a prompt.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from periplus.models import Stage
+
+# A bare ".env" resolves against the process working directory, so `uvicorn` started
+# from server/ silently ignored the repository-root .env the README tells you to
+# create — and since every key defaults to empty rather than being required, that
+# failed as a working server with no model access instead of as a startup error.
+# Anchor both candidate locations to this file instead. Later entries win, so a
+# server/.env still overrides the shared one at the repository root.
+_SERVER_DIR = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _SERVER_DIR.parent
+ENV_FILES = (_REPO_ROOT / ".env", _SERVER_DIR / ".env")
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-flash"
@@ -23,7 +34,7 @@ DEFAULT_STRONG_MODEL = "deepseek-v4-pro"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="PERIPLUS_",
-        env_file=".env",
+        env_file=ENV_FILES,
         env_file_encoding="utf-8",
         extra="ignore",
     )

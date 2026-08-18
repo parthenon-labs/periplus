@@ -121,6 +121,9 @@ python3.11 -m venv .venv
 .venv/bin/uvicorn periplus.api.app:app --reload
 ```
 
+The `.env` is resolved from the repository root regardless of where the process is
+started; a `server/.env` overrides it if you keep one there.
+
 In another shell:
 
 ```sh
