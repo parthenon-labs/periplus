@@ -75,6 +75,13 @@ Claim ──cites──▶ Evidence ──checked by──▶ Auditor ──emit
 Unsupported and contradictory claims remain visible outputs. The system does not
 turn uncertainty into confident prose merely to complete a plan.
 
+<div align="center">
+  <img src="docs/screenshots/evidence-drawer.png" alt="Evidence panel for one claim: verdict, confidence, the verifier's reasoning, and the exact source quote with its publication date" width="420">
+  <br>
+  <sub>The first fact in the article above, opened: the claim it rests on, the verdict and its
+  confidence, the verifier's reasoning, and the exact quote it was checked against.</sub>
+</div>
+
 ### Work crosses the artifact boundary
 
 Every stage emits a typed, serialisable artifact. Hermes applies a deterministic
