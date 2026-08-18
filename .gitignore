@@ -35,3 +35,6 @@ runs/
 # Local tool output
 .impeccable/
 media/
+
+# uv resolves no dependencies here (they live in requirements*.txt), so the lock is an empty shell
+server/uv.lock
