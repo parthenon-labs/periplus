@@ -2,7 +2,7 @@
 
 # Periplus
 
-**An evidence-grounded multi-agent system for travel research and publishing.**
+**An evidence-grounded agentic workflow for travel research and publishing.**
 
 Periplus turns a trip brief into a verified itinerary and publishable content.
 Every factual claim remains traceable to source evidence, an independent verdict,
