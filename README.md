@@ -25,7 +25,7 @@ Explorer ─────────▶ ResearchBundle
     │
     ▼
 Auditor ──────────▶ VerifiedBundle
- verification     supported · partial · contradicted · unsupported · stale
+ verification     supported · partial · stale · unsupported · contradicted · no_evidence
     │
     ▼
 Navigator ────────▶ Itinerary
@@ -194,8 +194,13 @@ server/periplus/
 ├── retrieval/       search, fetch, cleaning, caching, provenance
 ├── storage/         runs, stage artifacts, pgvector evidence cache
 ├── llm/             provider seam, structured output, repair, usage accounting
+├── embeddings/      local sentence-transformers seam behind the evidence cache
+├── geo/             travel time and distance providers behind one interface
+├── media/           image generation providers behind one interface
 ├── evals/           golden-set harness, metrics, thresholds, before/after reports
-└── api/             run submission, progress, recovery, result contracts
+├── api/             run submission, progress, recovery, result contracts
+├── models.py        every typed artifact and stage contract in one file
+└── config.py        the whole configurable surface, mirrored by .env.example
 
 server/evals/
 ├── cases/           committed golden set, one JSON case per file
@@ -204,7 +209,8 @@ server/evals/
 web/src/
 ├── routes/          trip brief, live run, and generated results
 ├── components/      stage progress and evidence-oriented result UI
-└── api/             generated OpenAPI contracts
+├── api/             generated OpenAPI contracts and the typed queries over them
+└── lib/             verdict, stage and formatting helpers shared by both
 ```
 
 The deeper rationale lives in [the architecture document](docs/architecture.md);
