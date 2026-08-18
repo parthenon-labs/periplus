@@ -12,6 +12,11 @@ and the stage artifact that produced it.
 
 [Live demo](https://parthenon-labs.github.io/periplus/) · [Architecture](docs/architecture.md) · [Web design](DESIGN.md) · [Product](PRODUCT.md)
 
+<sub>The demo is a static build of one captured run — a four-night Tokyo trip — with the brief
+pinned and no backend behind it. Everything below runs for real from a clone.</sub>
+
+<img src="docs/screenshots/itinerary-result.png" alt="Itinerary day timeline beside a places-and-evidence panel showing supported-claim counts" width="900">
+
 </div>
 
 ---
@@ -66,6 +71,13 @@ Claim ──cites──▶ Evidence ──checked by──▶ Auditor ──emit
 
 Unsupported and contradictory claims remain visible outputs. The system does not
 turn uncertainty into confident prose merely to complete a plan.
+
+<div align="center">
+  <img src="docs/screenshots/evidence-drawer.png" alt="Evidence drawer: each claim shown with its verdict, confidence, verifier reasoning, exact source quote, and publication date" width="900">
+  <br>
+  <sub>Every itinerary item opens onto the claims behind it: verdict, confidence, the verifier's
+  reasoning, and the exact quote it was checked against, with its source and observed date.</sub>
+</div>
 
 ### Work crosses the artifact boundary
 
@@ -210,6 +222,12 @@ server/periplus/
 server/evals/
 ├── cases/           committed golden set, one JSON case per file
 └── reports/         committed baseline report, and the target for --out
+
+server/tests/        the offline suite: scripted providers, HTTP fixtures, fake clocks
+
+docs/
+├── architecture.md  stage contracts, gates, budgets, and the reasoning behind them
+└── screenshots/     captured from the run the demo ships
 
 web/src/
 ├── routes/          trip brief, live run, and generated results
