@@ -26,6 +26,7 @@ from periplus.agents.illustration import IllustrationAgent
 from periplus.agents.research import ResearchAgent
 from periplus.agents.verification import VerificationAgent
 from periplus.llm import ScriptedClient, StagePolicy, Thinking
+from periplus.llm.base import TransientLLMError
 from periplus.media.images import GeneratedImage, ScriptedImages
 from periplus.models import (
     Check,
@@ -1037,6 +1038,132 @@ class TestResearchStageAdapterBudgetCharging:
         assert result.usage.queries == 1
         assert result.usage.fetches == 4
         assert result.artifact.claims == []
+
+
+class TestTransientProviderFailuresBecomeRetryable:
+    """The bridge that makes ``stage_max_attempts`` mean something in production.
+
+    Every agent degrades rather than raises, so before this nothing in the live pipeline
+    ever raised :class:`TransientStageError` and the stage-level retry budget was a knob
+    connected to nothing but the fakes above. The adapters now convert "the provider ate
+    my calls and I have nothing that would pass the gate" into exactly that error.
+    """
+
+    def _research_agent(self, replies) -> ResearchAgent:
+        document = SourceDocument(
+            url="https://harbourmuseum.example/visit",
+            title="Visitor information",
+            text="The Harbour Museum opens daily at 9am.",
+            query="museum hours",
+        )
+        retrieval = RetrievalResult(
+            documents=[document], queries_run=["museum hours"], queries_attempted=1,
+            fetch_attempts=1,
+        )
+        return ResearchAgent(
+            llm=ScriptedClient(replies, max_attempts=1),
+            retriever=_FixedRetriever(retrieval),
+            policy=StagePolicy(model="scripted"),
+        )
+
+    async def test_research_raises_when_the_provider_ate_every_call(self):
+        adapter = ResearchStageAdapter(self._research_agent([TransientLLMError("429")]))
+
+        with pytest.raises(TransientStageError) as caught:
+            await adapter.run(brief())
+
+        assert "no grounded claims" in str(caught.value)
+        assert "failed at the provider" in str(caught.value)
+
+    async def test_research_does_not_raise_when_the_prompt_was_the_problem(self):
+        # A reply that comes back but never validates exhausts the same attempt budget.
+        # It is not worth another stage attempt: the identical prompt would fail again,
+        # and the gate below is entitled to fail the run outright instead.
+        adapter = ResearchStageAdapter(self._research_agent(["not json at all"]))
+
+        result = await adapter.run(brief())
+
+        assert result.artifact.claims == []
+        assert any("Research extraction failed" in gap for gap in result.artifact.gaps)
+
+    async def test_research_keeps_a_usable_bundle_even_after_a_transient_failure(self):
+        # One batch lost to the provider, another that produced claims. Throwing the
+        # bundle away here would eventually fail a run that had something to ship.
+        quote = "The Harbour Museum opens daily at 9am."
+        reply = json.dumps(
+            {
+                "places": [
+                    {
+                        "name": "Harbour Museum",
+                        "kind": "museum",
+                        "tags": [],
+                        "claims": [
+                            {
+                                "subject": "Harbour Museum",
+                                "text": quote,
+                                "kind": "hours",
+                                "source_index": 0,
+                                "quote": quote,
+                            }
+                        ],
+                    }
+                ],
+                "gaps": [],
+            }
+        )
+        agent = self._research_agent([reply])
+        agent.max_documents_per_batch = 1
+        # Two documents, so two batches: the second one dies at the provider.
+        agent.retriever._result.documents.append(
+            SourceDocument(
+                url="https://harbourmuseum.example/tickets",
+                title="Tickets",
+                text="Tickets cost 12 euros.",
+                query="museum tickets",
+            )
+        )
+        adapter = ResearchStageAdapter(agent)
+
+        result = await adapter.run(brief())
+
+        assert len(result.artifact.claims) == 1
+        assert any("Research extraction failed" in gap for gap in result.artifact.gaps)
+
+    async def test_hermes_retries_the_stage_and_the_run_survives(self):
+        quote = "The Harbour Museum opens daily at 9am."
+        reply = json.dumps(
+            {
+                "places": [
+                    {
+                        "name": "Harbour Museum",
+                        "kind": "museum",
+                        "tags": [],
+                        "claims": [
+                            {
+                                "subject": "Harbour Museum",
+                                "text": quote,
+                                "kind": "hours",
+                                "source_index": 0,
+                                "quote": quote,
+                            }
+                        ],
+                    }
+                ],
+                "gaps": [],
+            }
+        )
+        adapter = ResearchStageAdapter(self._research_agent([TransientLLMError("429"), reply]))
+        hermes = Hermes(
+            adapters={Stage.RESEARCH: adapter},
+            retry=StageRetryPolicy(max_attempts=2),
+            clock=FakeClock(),
+        )
+
+        run = await hermes.start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert [entry.status for entry in run.stages] == [RunStatus.FAILED, RunStatus.SUCCEEDED]
+        assert run.stages[0].error.startswith("transient:")
 
 
 class TestRealAdapters:

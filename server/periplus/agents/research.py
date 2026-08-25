@@ -98,6 +98,12 @@ class ResearchOutcome:
     #: produced accepted evidence.
     queries_attempted: int = 0
     fetch_attempts: int = 0
+    #: How many model calls this stage lost to the provider itself — rate limits,
+    #: timeouts, 5xx — rather than to a prompt or an input it could not use. Read by
+    #: this stage's adapter in :mod:`periplus.orchestrator.stages`, which turns "the
+    #: provider was down and this stage produced nothing usable" into a
+    #: :class:`~periplus.orchestrator.errors.TransientStageError` Hermes can retry.
+    transient_failures: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -293,9 +299,11 @@ class ResearchAgent:
             )
         except StructuredOutputError as exc:
             outcome.calls.extend(exc.attempts)
+            outcome.transient_failures += int(exc.is_transient)
             outcome.bundle.gaps.append(f"Research extraction failed: {exc}")
             return
         except LLMError as exc:
+            outcome.transient_failures += 1
             outcome.bundle.gaps.append(f"Research extraction failed: {exc}")
             return
 

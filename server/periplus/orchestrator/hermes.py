@@ -25,6 +25,7 @@ from periplus.models import Run, RunStatus, Stage, StageRun, TripBrief
 from periplus.orchestrator.artifacts import ArtifactStore, InMemoryArtifactStore
 from periplus.orchestrator.budget import BudgetTracker, ResourceUsage, RunBudget
 from periplus.orchestrator.clock import Clock, SystemClock
+from periplus.orchestrator.errors import HermesError, StageFailure, TransientStageError
 from periplus.orchestrator.stages import DEFAULT_GATES, StageAdapter, StageGate, StageResult
 
 __all__ = [
@@ -52,10 +53,6 @@ STAGE_ORDER: tuple[Stage, ...] = (
 )
 
 
-class HermesError(Exception):
-    """Base for every orchestration-level failure."""
-
-
 class StageOrderError(HermesError):
     """The configured adapters do not form a contiguous prefix of the pipeline."""
 
@@ -72,14 +69,6 @@ class InvalidTransition(HermesError):
 
 class ReplayError(HermesError):
     """No retained, gate-passed artifact exists at the requested replay boundary."""
-
-
-class TransientStageError(HermesError):
-    """A stage adapter's retryable failure: worth attempting again with the same input."""
-
-
-class StageFailure(HermesError):
-    """A stage adapter's non-retryable failure: the same input would fail the same way."""
 
 
 @dataclass(frozen=True, slots=True)

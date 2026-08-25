@@ -74,6 +74,12 @@ class VerificationOutcome:
     claims: list[Claim]
     calls: list[ModelCall] = field(default_factory=list)
     failures: list[VerificationFailure] = field(default_factory=list)
+    #: How many model calls this stage lost to the provider itself — rate limits,
+    #: timeouts, 5xx — rather than to a prompt or an input it could not use. Read by
+    #: this stage's adapter in :mod:`periplus.orchestrator.stages`, which turns "the
+    #: provider was down and this stage produced nothing usable" into a
+    #: :class:`~periplus.orchestrator.errors.TransientStageError` Hermes can retry.
+    transient_failures: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -305,9 +311,11 @@ class VerificationAgent:
             )
         except StructuredOutputError as exc:
             outcome.calls.extend(exc.attempts)
+            outcome.transient_failures += int(exc.is_transient)
             outcome.failures.append(_batch_failure(batch, f"Structured verification failed: {exc}"))
             return
         except LLMError as exc:
+            outcome.transient_failures += 1
             outcome.failures.append(_batch_failure(batch, f"Verification model failed: {exc}"))
             return
 

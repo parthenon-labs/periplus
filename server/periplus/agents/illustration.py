@@ -11,13 +11,27 @@ configured, this stage does not crash. It produces an artifact with zero images 
 plain-English caveat and continues — the same graceful-degrade contract
 :class:`~periplus.agents.navigation.NavigationAgent` already applies to its distance
 provider.
+
+Retries are this agent's job, per subject, and that is why both providers in
+:mod:`periplus.media.images` construct their SDK client with ``max_retries=0``: a retry
+hidden inside the SDK is a call the run never sees. A subject is reattempted only for a
+:class:`~periplus.media.TransientImageGenerationError` — a rate limit, a timeout, a 5xx —
+and each subject's budget is its own, so one flaky prompt cannot consume the attempts
+another subject would have had.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
-from periplus.media import GeneratedImage, ImageGenerationError, ImageProvider, ImageRequest
+from periplus.media import (
+    GeneratedImage,
+    ImageGenerationError,
+    ImageProvider,
+    ImageRequest,
+    TransientImageGenerationError,
+)
 from periplus.models import (
     Claim,
     ClaimKind,
@@ -49,11 +63,16 @@ class IllustrationAgent:
         max_images: int = 6,
         size: str = "1024x1024",
         quality: str = "auto",
+        max_attempts: int = 2,
+        retry_backoff_seconds: float = 1.0,
     ) -> None:
         self.provider = provider
         self.max_images = max(1, max_images)
         self.size = size
         self.quality = quality
+        #: Attempts per subject, transient failures only. 1 disables retry.
+        self.max_attempts = max(1, max_attempts)
+        self.retry_backoff_seconds = max(0.0, retry_backoff_seconds)
 
     async def illustrate(self, content: ContentSet) -> IllustrationOutcome:
         illustrated = IllustratedContentSet(**content.model_dump())
@@ -73,16 +92,41 @@ class IllustrationAgent:
             return outcome
 
         for subject, claim_ids, prompt in selections:
-            try:
-                generated = await self.provider.generate(
-                    ImageRequest(prompt=prompt, size=self.size, quality=self.quality)
-                )
-            except ImageGenerationError as exc:
-                illustrated.caveats.append(f"Illustration for {subject!r} failed: {exc}")
+            generated = await self._generate(subject, prompt, illustrated.caveats)
+            if generated is None:
                 continue
             illustrated.images.append(_to_illustration(subject, claim_ids, prompt, generated))
 
         return outcome
+
+    async def _generate(
+        self, subject: str, prompt: str, caveats: list[str]
+    ) -> GeneratedImage | None:
+        """One subject's image, reattempted only while the provider itself is the problem.
+
+        A non-transient :class:`~periplus.media.ImageGenerationError` — a rejected prompt,
+        a malformed response, a missing key — would fail the same way again, so it is
+        recorded as a caveat on the first attempt rather than paid for twice. Either way
+        this returns ``None`` instead of raising: a missing picture is a degraded
+        artifact, never a failed run.
+        """
+        assert self.provider is not None
+        request = ImageRequest(prompt=prompt, size=self.size, quality=self.quality)
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                return await self.provider.generate(request)
+            except TransientImageGenerationError as exc:
+                if attempt == self.max_attempts:
+                    caveats.append(
+                        f"Illustration for {subject!r} failed after {attempt} attempt(s): {exc}"
+                    )
+                    return None
+                if self.retry_backoff_seconds:
+                    await asyncio.sleep(self.retry_backoff_seconds * attempt)
+            except ImageGenerationError as exc:
+                caveats.append(f"Illustration for {subject!r} failed: {exc}")
+                return None
+        return None
 
     async def aclose(self) -> None:
         close_provider = getattr(self.provider, "aclose", None)

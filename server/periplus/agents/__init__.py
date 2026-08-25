@@ -95,6 +95,8 @@ def build_illustration_agent(settings=None) -> IllustrationAgent:
         max_images=settings.max_illustrations,
         size=settings.illustration_image_size,
         quality=settings.illustration_image_quality,
+        max_attempts=settings.illustration_max_attempts,
+        retry_backoff_seconds=settings.illustration_retry_backoff_seconds,
     )
 
 

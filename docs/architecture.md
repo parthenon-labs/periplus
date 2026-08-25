@@ -186,6 +186,18 @@ model providers — only whether the next stage may run.
   something that would not change on retry (fails immediately, bound untouched). Both are
   recorded as a failed `StageRun`, tagged in `error` so the two are never confused after
   the fact.
+
+  The agents themselves never raise either one: every one of them degrades a lost model
+  call into a gap, a caveat or a recorded failure, because their job is to report
+  honestly on what they produced. Deciding that a stage was robbed by the provider rather
+  than defeated by its input belongs to the adapter, which raises `TransientStageError`
+  only when its outcome reports calls lost at the provider *and* the artifact in hand
+  would be rejected by that stage's default gate anyway. Both halves are load-bearing:
+  the first keeps a bad prompt from being retried forever, the second keeps a stage that
+  lost one batch but still produced something usable from being thrown away and taking
+  the run down with it. Illustrator is the exception in the other direction — image
+  retries are per subject inside the agent (`illustration_max_attempts`), because a
+  single failed picture is a caveat, not a failed stage.
 - **Artifact retention and replay** — every stage attempt's artifact is retained, whether
   it passed its gate or not, keyed by run, stage and attempt; a later attempt never
   overwrites an earlier one. `Hermes.replay(run, from_stage=...)` resumes from the most

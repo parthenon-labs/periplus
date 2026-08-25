@@ -91,6 +91,14 @@ class Settings(BaseSettings):
     max_illustrations: int = Field(
         default=6, ge=1, description="Ceiling on distinct subjects illustrated per run."
     )
+    illustration_max_attempts: int = Field(
+        default=2,
+        ge=1,
+        description="Attempts per illustrated subject, transient provider failures only; "
+        "1 disables retry. Both image providers run with the SDK's own retries off, so "
+        "this is the only retry in that path — see periplus.agents.illustration.",
+    )
+    illustration_retry_backoff_seconds: float = Field(default=1.0, ge=0)
 
     # --- Fetching ----------------------------------------------------------------------
     page_cache_enabled: bool = True

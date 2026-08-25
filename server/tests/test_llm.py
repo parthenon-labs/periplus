@@ -167,6 +167,39 @@ class TestTransientRetries:
         assert client.call_count == 1
 
 
+class TestExhaustionIsTransientOrNot:
+    """``StructuredOutputError.is_transient`` is what tells a caller whether repeating
+    the same unit of work could plausibly go differently. Stage adapters read it to
+    decide between a retryable stage failure and a logical one.
+    """
+
+    async def test_exhausting_on_provider_failures_is_transient(self):
+        client = ScriptedClient(
+            [TransientLLMError("429"), TransientLLMError("503")], max_attempts=2
+        )
+        with pytest.raises(StructuredOutputError) as excinfo:
+            await call(client)
+
+        assert excinfo.value.last_text is None
+        assert excinfo.value.is_transient is True
+
+    async def test_exhausting_on_unusable_output_is_not(self):
+        client = ScriptedClient(["no", "still no"], max_attempts=2)
+        with pytest.raises(StructuredOutputError) as excinfo:
+            await call(client)
+
+        assert excinfo.value.is_transient is False
+
+    async def test_a_reply_that_arrived_at_all_makes_exhaustion_non_transient(self):
+        # The provider was flaky *and* the one reply that got through was unusable. The
+        # prompt is implicated, so this is not something to hand back for a free retry.
+        client = ScriptedClient(["not json", TransientLLMError("429")], max_attempts=2)
+        with pytest.raises(StructuredOutputError) as excinfo:
+            await call(client)
+
+        assert excinfo.value.is_transient is False
+
+
 class TestStagePolicies:
     def test_verification_does_not_think(self):
         """The whole point of a separate auditor is that it reads, not reasons."""

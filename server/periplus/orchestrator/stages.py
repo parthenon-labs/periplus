@@ -7,6 +7,27 @@ behaviour still lives in :class:`~periplus.agents.research.ResearchAgent`,
 :class:`~periplus.agents.verification.VerificationAgent` and
 :class:`~periplus.agents.navigation.NavigationAgent`; the adapters below only translate
 between Hermes's generic pipeline and each agent's own narrow contract.
+
+The adapters also own one judgement the agents deliberately do not make. Every agent
+below degrades rather than raises: a model call lost to a rate limit or a 5xx becomes a
+gap, a caveat or a recorded failure, never an exception, because an agent's job is to
+report honestly on what it managed to produce. That leaves nobody to say "this stage was
+robbed by the provider and is worth simply running again" — which is what
+:class:`~periplus.orchestrator.hermes.StageRetryPolicy` retries. So each adapter reads
+its outcome's ``transient_failures`` count and, when the artifact it is holding would be
+rejected by that stage's default gate anyway, raises
+:class:`~periplus.orchestrator.errors.TransientStageError` instead of handing the
+artifact back.
+
+Both halves of that condition matter. Without the counter, every gate failure would look
+retryable, including the ones caused by a prompt or an input that will fail identically
+next time. Without the gate check, a stage that lost one batch out of ten but still
+produced a usable artifact would be thrown away and, once the retry budget ran out, take
+the whole run down with it — strictly worse than shipping what it had. Together they mean
+converting to a transient error can only ever replace a run that was going to fail with
+one that might not. (A pipeline that explicitly disables a default gate via
+``gates={Stage.X: None}`` is the one case where these can disagree: the adapter still
+declines an artifact the default gate would have rejected.)
 """
 
 from __future__ import annotations
@@ -33,6 +54,7 @@ from periplus.models import (
 )
 from periplus.orchestrator.budget import ResourceUsage
 from periplus.orchestrator.clock import Clock
+from periplus.orchestrator.errors import TransientStageError
 
 
 @dataclass(slots=True)
@@ -124,6 +146,22 @@ DEFAULT_GATES: dict[Stage, StageGate | None] = {
 }
 
 
+def _reject_if_only_the_provider_failed(
+    transient_failures: int, gate_reason: str | None, stage: Stage
+) -> None:
+    """Raise when a stage lost calls to the provider *and* has nothing that would pass.
+
+    ``gate_reason`` is the stage's own default gate applied to the artifact in hand, so
+    the artifact is only ever discarded when it was headed for rejection regardless —
+    see this module's docstring for why both conditions are required.
+    """
+    if transient_failures and gate_reason is not None:
+        raise TransientStageError(
+            f"{stage.value}: {gate_reason}, after {transient_failures} model call(s) "
+            "failed at the provider"
+        )
+
+
 class ResearchStageAdapter:
     """Wraps :class:`ResearchAgent` behind the narrow :class:`StageAdapter` protocol."""
 
@@ -145,6 +183,9 @@ class ResearchStageAdapter:
             stage_input,
             on_progress=self._on_progress,
             on_bundle_progress=self._on_bundle_progress,
+        )
+        _reject_if_only_the_provider_failed(
+            outcome.transient_failures, research_gate(outcome.bundle), Stage.RESEARCH
         )
         # Charge exact retrieval-attempt counts, not an approximation from what made it
         # into the bundle: a failed query still cost a search call, and a fetched page
@@ -185,6 +226,9 @@ class VerificationStageAdapter:
             on_progress=self._on_progress,
         )
         verified = outcome.to_bundle(stage_input)
+        _reject_if_only_the_provider_failed(
+            outcome.transient_failures, verification_gate(verified), Stage.VERIFY
+        )
         usage = ResourceUsage(tokens=outcome.total_tokens)
         return StageResult(artifact=verified, usage=usage, calls=list(outcome.calls))
 
@@ -202,6 +246,9 @@ class NavigationStageAdapter:
 
     async def run(self, stage_input: VerifiedBundle) -> StageResult:
         outcome = await self._agent.plan(self._brief, stage_input)
+        _reject_if_only_the_provider_failed(
+            outcome.transient_failures, planning_gate(outcome.itinerary), Stage.PLAN
+        )
         usage = ResourceUsage(tokens=outcome.total_tokens)
         return StageResult(artifact=outcome.itinerary, usage=usage, calls=list(outcome.calls))
 
@@ -220,6 +267,9 @@ class ContentStageAdapter:
 
     async def run(self, stage_input: Itinerary) -> StageResult:
         outcome = await self._agent.write(self._brief, stage_input)
+        _reject_if_only_the_provider_failed(
+            outcome.transient_failures, content_gate(outcome.content), Stage.WRITE
+        )
         usage = ResourceUsage(tokens=outcome.total_tokens)
         return StageResult(artifact=outcome.content, usage=usage, calls=list(outcome.calls))
 

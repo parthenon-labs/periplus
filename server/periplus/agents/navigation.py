@@ -74,6 +74,12 @@ class ItineraryDraft(Draft):
 class NavigationOutcome:
     itinerary: Itinerary
     calls: list[ModelCall] = field(default_factory=list)
+    #: How many model calls this stage lost to the provider itself — rate limits,
+    #: timeouts, 5xx — rather than to a prompt or an input it could not use. Read by
+    #: this stage's adapter in :mod:`periplus.orchestrator.stages`, which turns "the
+    #: provider was down and this stage produced nothing usable" into a
+    #: :class:`~periplus.orchestrator.errors.TransientStageError` Hermes can retry.
+    transient_failures: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -139,9 +145,11 @@ class NavigationAgent:
             )
         except StructuredOutputError as exc:
             outcome.calls.extend(exc.attempts)
+            outcome.transient_failures += int(exc.is_transient)
             itinerary.caveats.append(f"Planning failed: {exc}")
             return outcome
         except LLMError as exc:
+            outcome.transient_failures += 1
             itinerary.caveats.append(f"Planning failed: {exc}")
             return outcome
 

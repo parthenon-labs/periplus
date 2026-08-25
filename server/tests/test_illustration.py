@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from periplus.agents.illustration import IllustrationAgent
-from periplus.media.images import GeneratedImage, ImageGenerationError, ScriptedImages
+from periplus.media.images import (
+    GeneratedImage,
+    ImageGenerationError,
+    ScriptedImages,
+    TransientImageGenerationError,
+)
 from periplus.models import Claim, ClaimKind, ContentPiece, ContentSet
 
 
@@ -161,3 +166,89 @@ class TestGracefulDegrade:
         # No provider means no generate() call could have happened at all; nothing to
         # assert against a provider double here beyond the caveat and empty images above.
         assert outcome.calls == []
+
+
+class TestPerSubjectRetries:
+    """Both image providers construct their SDK client with ``max_retries=0`` on the
+    stated grounds that retries are this agent's job, per subject. These are the tests
+    that make that statement true rather than aspirational.
+    """
+
+    async def test_a_transient_failure_is_retried_and_can_succeed(self):
+        provider = ScriptedImages(
+            [
+                TransientImageGenerationError("429 rate limited"),
+                GeneratedImage(data_base64="aGVsbG8="),
+            ]
+        )
+        illustrator = agent(provider=provider, max_attempts=2, retry_backoff_seconds=0)
+
+        outcome = await illustrator.illustrate(
+            content(pieces=[make_piece()], claims=[make_claim()])
+        )
+
+        assert len(provider.requests) == 2
+        assert len(outcome.illustrated.images) == 1
+        assert outcome.illustrated.caveats == []
+
+    async def test_a_permanent_failure_is_never_paid_for_twice(self):
+        provider = ScriptedImages([ImageGenerationError("prompt rejected")])
+        illustrator = agent(provider=provider, max_attempts=3, retry_backoff_seconds=0)
+
+        outcome = await illustrator.illustrate(
+            content(pieces=[make_piece()], claims=[make_claim()])
+        )
+
+        assert len(provider.requests) == 1
+        assert outcome.illustrated.images == []
+        assert any("prompt rejected" in c for c in outcome.illustrated.caveats)
+
+    async def test_exhausting_the_attempts_is_a_caveat_not_a_crash(self):
+        provider = ScriptedImages(
+            [TransientImageGenerationError("503"), TransientImageGenerationError("503")]
+        )
+        illustrator = agent(provider=provider, max_attempts=2, retry_backoff_seconds=0)
+
+        outcome = await illustrator.illustrate(
+            content(pieces=[make_piece()], claims=[make_claim()])
+        )
+
+        assert len(provider.requests) == 2
+        assert outcome.illustrated.images == []
+        assert any("2 attempt(s)" in c for c in outcome.illustrated.caveats)
+
+    async def test_each_subject_gets_its_own_attempt_budget(self):
+        second_claim = make_claim(id="claim-2", subject="Retiro Park", text="A vast city park.")
+        provider = ScriptedImages(
+            [
+                TransientImageGenerationError("503"),
+                TransientImageGenerationError("503"),
+                TransientImageGenerationError("503"),
+                GeneratedImage(data_base64="d29ybGQ="),
+            ]
+        )
+        illustrator = agent(provider=provider, max_attempts=2, retry_backoff_seconds=0)
+
+        outcome = await illustrator.illustrate(
+            content(
+                pieces=[make_piece(claim_ids=["claim-1", "claim-2"])],
+                claims=[make_claim(), second_claim],
+            )
+        )
+
+        # The Prado burnt both of its attempts; Retiro Park still got two of its own.
+        assert len(provider.requests) == 4
+        assert [image.subject for image in outcome.illustrated.images] == ["Retiro Park"]
+
+    async def test_max_attempts_of_one_disables_retry(self):
+        provider = ScriptedImages(
+            [TransientImageGenerationError("503"), GeneratedImage(data_base64="aGVsbG8=")]
+        )
+        illustrator = agent(provider=provider, max_attempts=1, retry_backoff_seconds=0)
+
+        outcome = await illustrator.illustrate(
+            content(pieces=[make_piece()], claims=[make_claim()])
+        )
+
+        assert len(provider.requests) == 1
+        assert outcome.illustrated.images == []

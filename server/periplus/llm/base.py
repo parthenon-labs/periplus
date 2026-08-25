@@ -87,6 +87,20 @@ class StructuredOutputError(LLMError):
         self.attempts = attempts
         self.last_text = last_text
 
+    @property
+    def is_transient(self) -> bool:
+        """Whether every attempt died at the provider, before any reply was seen.
+
+        :meth:`LLMClient.structured` only ever sets ``last_text`` once a response came
+        back, so its absence means no attempt got that far: rate limits, timeouts or
+        5xx — the same prompt may well succeed on a later attempt. Exhausting the
+        attempt budget on schema-validation failures instead leaves ``last_text`` set,
+        and that is the prompt's problem, not the provider's; repeating it would repeat
+        the failure. Callers that must decide whether retrying the surrounding unit of
+        work is worth anything ask this, rather than reading the message.
+        """
+        return self.last_text is None
+
 
 @dataclass(slots=True)
 class Completion(Generic[T]):
