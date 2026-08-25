@@ -28,7 +28,9 @@ from periplus.agents.navigation import (
 from periplus.agents.research import (
     ResearchAgent,
     ResearchExtraction,
+    ResearchFollowup,
     ResearchOutcome,
+    build_followup_queries,
     build_research_queries,
 )
 from periplus.agents.verification import (
@@ -62,6 +64,7 @@ __all__ = [
     "PieceEditDraft",
     "ResearchAgent",
     "ResearchExtraction",
+    "ResearchFollowup",
     "ResearchOutcome",
     "SemanticVerdict",
     "VerificationAgent",
@@ -71,6 +74,7 @@ __all__ = [
     "VerificationOutcome",
     "build_content_agent",
     "build_editor_agent",
+    "build_followup_queries",
     "build_illustration_agent",
     "build_navigation_agent",
     "build_research_agent",

@@ -23,6 +23,7 @@ from periplus.orchestrator.hermes import (
     Hermes,
     HermesError,
     InvalidTransition,
+    RecoveryPolicy,
     ReplayError,
     StageFailure,
     StageOrderError,
@@ -30,6 +31,7 @@ from periplus.orchestrator.hermes import (
     TransientStageError,
 )
 from periplus.orchestrator.stages import (
+    CONFIRMED_VERDICTS,
     DEFAULT_GATES,
     ContentStageAdapter,
     EditorStageAdapter,
@@ -44,10 +46,12 @@ from periplus.orchestrator.stages import (
     edit_gate,
     planning_gate,
     research_gate,
+    unconfirmed_research,
     verification_gate,
 )
 
 __all__ = [
+    "CONFIRMED_VERDICTS",
     "DEFAULT_GATES",
     "STAGE_ORDER",
     "ArtifactStore",
@@ -62,6 +66,7 @@ __all__ = [
     "InMemoryArtifactStore",
     "InvalidTransition",
     "NavigationStageAdapter",
+    "RecoveryPolicy",
     "ReplayError",
     "ResearchStageAdapter",
     "ResourceUsage",
@@ -81,6 +86,7 @@ __all__ = [
     "edit_gate",
     "planning_gate",
     "research_gate",
+    "unconfirmed_research",
     "verification_gate",
 ]
 
@@ -113,6 +119,13 @@ def build_hermes(
     so a run started by one call to this function can be resumed — after a restart, by a
     different one — against the same retained artifacts.
 
+    A :class:`RecoveryPolicy` is wired in unconditionally when
+    ``settings.research_followup_enabled`` is on (the default): verification's own
+    verdicts decide whether research runs one more, targeted pass — see
+    :func:`~periplus.orchestrator.stages.unconfirmed_research`. Research and verify are
+    always both present here, so the policy can never be configured against a stage this
+    pipeline does not run.
+
     ``evidence_cache`` defaults to ``None`` — no semantic evidence cache, exactly the
     behaviour before that layer existed. Production wiring passes one shared,
     already-opened :class:`~periplus.storage.PostgresEvidenceCache` (built via
@@ -142,12 +155,21 @@ def build_hermes(
         adapters[Stage.WRITE] = ContentStageAdapter(build_content_agent(settings), brief=brief)
         adapters[Stage.EDIT] = EditorStageAdapter(build_editor_agent(settings))
         adapters[Stage.ILLUSTRATE] = IllustrationStageAdapter(build_illustration_agent(settings))
+    recovery = None
+    if settings.research_followup_enabled:
+        max_subjects = settings.max_followup_subjects
+        recovery = RecoveryPolicy(
+            observes=Stage.VERIFY,
+            resumes=Stage.RESEARCH,
+            inspect=lambda artifact: unconfirmed_research(artifact, max_subjects=max_subjects),
+        )
     return Hermes(
         adapters=adapters,
         retry=StageRetryPolicy(
             max_attempts=settings.stage_max_attempts,
             backoff_seconds=settings.stage_retry_backoff_seconds,
         ),
+        recovery=recovery,
         budget=RunBudget(
             max_queries=settings.max_run_queries,
             max_fetches=settings.max_run_fetches,

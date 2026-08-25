@@ -23,7 +23,7 @@ import pytest
 
 from periplus.agents.editor import EditorAgent
 from periplus.agents.illustration import IllustrationAgent
-from periplus.agents.research import ResearchAgent
+from periplus.agents.research import ResearchAgent, ResearchFollowup
 from periplus.agents.verification import VerificationAgent
 from periplus.llm import ScriptedClient, StagePolicy, Thinking
 from periplus.llm.base import TransientLLMError
@@ -45,6 +45,7 @@ from periplus.models import (
     VerifiedBundle,
 )
 from periplus.orchestrator import (
+    CONFIRMED_VERDICTS,
     STAGE_ORDER,
     EditorStageAdapter,
     FakeClock,
@@ -52,6 +53,7 @@ from periplus.orchestrator import (
     IllustrationStageAdapter,
     InMemoryArtifactStore,
     InvalidTransition,
+    RecoveryPolicy,
     ReplayError,
     ResearchStageAdapter,
     ResourceUsage,
@@ -65,6 +67,7 @@ from periplus.orchestrator import (
     VerificationStageAdapter,
     edit_gate,
     research_gate,
+    unconfirmed_research,
     verification_gate,
 )
 from periplus.orchestrator.budget import BudgetTracker
@@ -157,6 +160,26 @@ class FakeStage:
         if isinstance(reply, Exception):
             raise reply
         return reply
+
+
+class FollowupAwareStage(FakeStage):
+    """A fake research stage that accepts a recovery directive, as the real one does.
+
+    Records what it held at the moment each attempt ran, so a test can tell a followup
+    attempt from a plain one and see when Hermes cleared the directive.
+    """
+
+    def __init__(self, stage: Stage, replies: list) -> None:
+        super().__init__(stage, replies)
+        self.followup: object | None = None
+        self.followup_per_call: list[object | None] = []
+
+    def set_followup(self, followup: object | None) -> None:
+        self.followup = followup
+
+    async def run(self, stage_input: object) -> StageResult:
+        self.followup_per_call.append(self.followup)
+        return await super().run(stage_input)
 
 
 class FlippingStage(FakeStage):
@@ -1038,6 +1061,277 @@ class TestResearchStageAdapterBudgetCharging:
         assert result.usage.queries == 1
         assert result.usage.fetches == 4
         assert result.artifact.claims == []
+
+
+def unchecked(verdict: Verdict, **overrides) -> Claim:
+    """A claim carrying a real, recorded verdict — including the unhappy ones."""
+    made = claim(**overrides)
+    made.check = Check(verdict=verdict, confidence=0.4, reason="Recorded by the Auditor.")
+    return made
+
+
+class TestUnconfirmedResearch:
+    """The inspector that decides whether a second research pass is worth anything."""
+
+    def test_nothing_to_do_when_every_claim_is_confirmed(self):
+        assert unconfirmed_research(verified(claims=[checked_claim()])) is None
+
+    @pytest.mark.parametrize(
+        "verdict",
+        [Verdict.NO_EVIDENCE, Verdict.UNSUPPORTED, Verdict.CONTRADICTED, Verdict.STALE],
+    )
+    def test_every_unconfirmed_verdict_asks_for_better_sources(self, verdict: Verdict):
+        followup = unconfirmed_research(verified(claims=[unchecked(verdict, subject="Prado")]))
+
+        assert followup is not None
+        assert followup.subjects == ("Prado",)
+
+    def test_stale_counts_as_unconfirmed_even_though_it_is_usable(self):
+        # STALE is in USABLE_VERDICTS but not in CONFIRMED_VERDICTS: the claim is
+        # supported by evidence that is simply too old, which is precisely the hole a
+        # fresh search fills.
+        assert Verdict.STALE not in CONFIRMED_VERDICTS
+        followup = unconfirmed_research(verified(claims=[unchecked(Verdict.STALE)]))
+        assert followup is not None
+
+    def test_a_subject_is_named_once_however_many_claims_it_failed_on(self):
+        followup = unconfirmed_research(
+            verified(
+                claims=[
+                    unchecked(Verdict.UNSUPPORTED, id="c1", subject="Prado"),
+                    unchecked(Verdict.NO_EVIDENCE, id="c2", subject="prado"),
+                    checked_claim(id="c3", subject="Retiro"),
+                ]
+            )
+        )
+
+        assert followup is not None
+        assert followup.subjects == ("Prado",)
+
+    def test_subjects_are_capped_and_ordered_by_first_appearance(self):
+        claims = [
+            unchecked(Verdict.UNSUPPORTED, id=f"c{index}", subject=f"Place {index}")
+            for index in range(5)
+        ]
+        followup = unconfirmed_research(verified(claims=claims), max_subjects=2)
+
+        assert followup is not None
+        assert followup.subjects == ("Place 0", "Place 1")
+
+    def test_the_bundle_travels_with_the_directive_as_its_base(self):
+        source = verified(claims=[unchecked(Verdict.UNSUPPORTED)])
+        followup = unconfirmed_research(source)
+
+        assert followup is not None
+        assert followup.base is source
+
+
+class TestRecoveryPolicy:
+    """One bounded backward edge, and the bookkeeping that keeps it bounded."""
+
+    def _hermes(self, research: FollowupAwareStage, verify: FakeStage, **overrides):
+        options = {
+            "adapters": {Stage.RESEARCH: research, Stage.VERIFY: verify},
+            "recovery": RecoveryPolicy(
+                observes=Stage.VERIFY, resumes=Stage.RESEARCH, inspect=unconfirmed_research
+            ),
+            "clock": FakeClock(),
+        }
+        options.update(overrides)
+        return Hermes(**options)
+
+    async def test_unconfirmed_claims_send_the_pipeline_back_to_research_once(self):
+        research = FollowupAwareStage(Stage.RESEARCH, [result(bundle()), result(bundle())])
+        verify = FakeStage(
+            Stage.VERIFY,
+            [
+                result(verified(claims=[unchecked(Verdict.NO_EVIDENCE)])),
+                result(verified(claims=[checked_claim()])),
+            ],
+        )
+
+        run = await self._hermes(research, verify).start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert research.calls == 2
+        assert verify.calls == 2
+        # Every pass is an ordinary, recorded stage attempt — nothing hidden inside one.
+        assert [(entry.stage, entry.attempt) for entry in run.stages] == [
+            (Stage.RESEARCH, 1),
+            (Stage.VERIFY, 1),
+            (Stage.RESEARCH, 2),
+            (Stage.VERIFY, 2),
+        ]
+        assert all(entry.status is RunStatus.SUCCEEDED for entry in run.stages)
+
+    async def test_the_second_research_attempt_is_the_one_carrying_the_directive(self):
+        research = FollowupAwareStage(Stage.RESEARCH, [result(bundle()), result(bundle())])
+        verify = FakeStage(
+            Stage.VERIFY,
+            [
+                result(verified(claims=[unchecked(Verdict.UNSUPPORTED, subject="Prado")])),
+                result(verified(claims=[checked_claim()])),
+            ],
+        )
+
+        await self._hermes(research, verify).start(brief())
+
+        first, second = research.followup_per_call
+        assert first is None
+        assert isinstance(second, ResearchFollowup)
+        assert second.subjects == ("Prado",)
+        # And it is cleared once honoured, so nothing downstream inherits it.
+        assert research.followup is None
+
+    async def test_research_is_re_fed_the_brief_not_the_verified_bundle(self):
+        research = FollowupAwareStage(Stage.RESEARCH, [result(bundle()), result(bundle())])
+        verify = FakeStage(
+            Stage.VERIFY,
+            [
+                result(verified(claims=[unchecked(Verdict.NO_EVIDENCE)])),
+                result(verified(claims=[checked_claim()])),
+            ],
+        )
+        trip = brief()
+
+        await self._hermes(research, verify).start(trip)
+
+        assert research.received == [trip, trip]
+
+    async def test_a_second_disappointing_verdict_does_not_buy_a_third_pass(self):
+        research = FollowupAwareStage(Stage.RESEARCH, [result(bundle()), result(bundle())])
+        verify = FakeStage(
+            Stage.VERIFY,
+            [
+                result(verified(claims=[unchecked(Verdict.NO_EVIDENCE)])),
+                result(verified(claims=[unchecked(Verdict.NO_EVIDENCE)])),
+            ],
+        )
+
+        run = await self._hermes(research, verify).start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert research.calls == 2
+        # The run ships what it has, with the unconfirmed verdict still on the record.
+        assert run.verified.claims[0].verdict is Verdict.NO_EVIDENCE
+
+    async def test_a_confirmed_first_pass_costs_a_run_nothing(self):
+        research = FollowupAwareStage(Stage.RESEARCH, [result(bundle())])
+        verify = FakeStage(Stage.VERIFY, [result(verified(claims=[checked_claim()]))])
+
+        run = await self._hermes(research, verify).start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert research.calls == 1
+        assert research.followup_per_call == [None]
+
+    async def test_a_transiently_failed_followup_is_retried_as_a_followup(self):
+        # Consuming the directive on entry would silently turn this retry into a fresh
+        # full sweep that discards everything the first pass found.
+        research = FollowupAwareStage(
+            Stage.RESEARCH,
+            [result(bundle()), TransientStageError("blip"), result(bundle())],
+        )
+        verify = FakeStage(
+            Stage.VERIFY,
+            [
+                result(verified(claims=[unchecked(Verdict.NO_EVIDENCE)])),
+                result(verified(claims=[checked_claim()])),
+            ],
+        )
+
+        run = await self._hermes(
+            research, verify, retry=StageRetryPolicy(max_attempts=2)
+        ).start(brief())
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert [entry is not None for entry in research.followup_per_call] == [
+            False,
+            True,
+            True,
+        ]
+
+    async def test_a_gated_off_verify_never_reaches_the_backward_edge(self):
+        # verification_gate rejects a bundle where a claim has no verdict at all. A stage
+        # that failed must not get a second pass smuggled in behind the failure.
+        research = FollowupAwareStage(Stage.RESEARCH, [result(bundle())])
+        verify = FakeStage(Stage.VERIFY, [result(verified(claims=[claim()]))])
+
+        run = await self._hermes(research, verify).start(brief())
+
+        assert run.status is RunStatus.FAILED
+        assert research.calls == 1
+
+    async def test_the_extra_passes_are_charged_against_the_run_budget(self):
+        research = FollowupAwareStage(
+            Stage.RESEARCH,
+            [
+                result(bundle(), usage=ResourceUsage(queries=3)),
+                result(bundle(), usage=ResourceUsage(queries=3)),
+            ],
+        )
+        verify = FakeStage(
+            Stage.VERIFY,
+            [
+                result(verified(claims=[unchecked(Verdict.NO_EVIDENCE)])),
+                result(verified(claims=[checked_claim()])),
+            ],
+        )
+
+        run = await self._hermes(
+            research, verify, budget=RunBudget(max_queries=4)
+        ).start(brief())
+
+        # The first pass fits; the second one pushes the run over its ceiling and the
+        # run fails there rather than quietly spending past it.
+        assert run.status is RunStatus.FAILED
+        assert "budget_exceeded" in run.stages[-1].error
+
+
+class TestRecoveryPolicyConfiguration:
+    """A backward edge that cannot fire is worse than none: it reads as a feature."""
+
+    def test_rejects_a_stage_this_pipeline_does_not_run(self):
+        with pytest.raises(StageOrderError, match="but this pipeline runs"):
+            Hermes(
+                adapters={Stage.RESEARCH: FollowupAwareStage(Stage.RESEARCH, [])},
+                recovery=RecoveryPolicy(
+                    observes=Stage.VERIFY, resumes=Stage.RESEARCH, inspect=unconfirmed_research
+                ),
+            )
+
+    def test_rejects_an_edge_that_does_not_point_backwards(self):
+        with pytest.raises(StageOrderError, match="must resume before it observes"):
+            Hermes(
+                adapters={
+                    Stage.RESEARCH: FollowupAwareStage(Stage.RESEARCH, []),
+                    Stage.VERIFY: FakeStage(Stage.VERIFY, []),
+                },
+                recovery=RecoveryPolicy(
+                    observes=Stage.RESEARCH, resumes=Stage.VERIFY, inspect=unconfirmed_research
+                ),
+            )
+
+    def test_rejects_an_adapter_that_cannot_receive_a_directive(self):
+        with pytest.raises(StageOrderError, match="no set_followup"):
+            Hermes(
+                adapters={
+                    Stage.RESEARCH: FakeStage(Stage.RESEARCH, []),
+                    Stage.VERIFY: FakeStage(Stage.VERIFY, []),
+                },
+                recovery=RecoveryPolicy(
+                    observes=Stage.VERIFY, resumes=Stage.RESEARCH, inspect=unconfirmed_research
+                ),
+            )
+
+    def test_rejects_an_unbounded_number_of_passes(self):
+        with pytest.raises(ValueError, match="max_passes"):
+            RecoveryPolicy(
+                observes=Stage.VERIFY,
+                resumes=Stage.RESEARCH,
+                inspect=unconfirmed_research,
+                max_passes=0,
+            )
 
 
 class TestTransientProviderFailuresBecomeRetryable:

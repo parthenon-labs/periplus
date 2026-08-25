@@ -13,6 +13,17 @@ artifact, are logical: retrying with the same input would just repeat them, so n
 consumes or triggers an automatic retry. Both are recorded as a failed
 :class:`~periplus.models.StageRun`, tagged in ``error`` so the two are never confused
 after the fact.
+
+A third shape is neither: a stage that succeeded, passed its gate, and still produced an
+artifact the *next* stage can see is not good enough. Retrying that stage is pointless —
+the input has not changed — but going back further and changing the input is not. That
+is a :class:`RecoveryPolicy`: one bounded, recorded backward edge in an otherwise
+strictly forward pipeline. Hermes owns only the bound and the bookkeeping; what counts as
+"not good enough" and what to do about it belong to the stages (see
+:func:`~periplus.orchestrator.stages.unconfirmed_research`). Every pass it triggers is an
+ordinary stage attempt with its own :class:`~periplus.models.StageRun`, charged against
+the same budget as any other, so a run that took a second pass says so in its audit trail
+rather than hiding it inside one stage.
 """
 
 from __future__ import annotations
@@ -31,6 +42,7 @@ from periplus.orchestrator.stages import DEFAULT_GATES, StageAdapter, StageGate,
 __all__ = [
     "STAGE_ORDER",
     "Hermes",
+    "RecoveryPolicy",
     "HermesError",
     "InvalidTransition",
     "ReplayError",
@@ -69,6 +81,31 @@ class InvalidTransition(HermesError):
 
 class ReplayError(HermesError):
     """No retained, gate-passed artifact exists at the requested replay boundary."""
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryPolicy:
+    """One bounded backward edge: re-run an earlier stage with a directive from a later one.
+
+    ``inspect`` is handed the gate-passed artifact of ``observes`` and returns either
+    ``None`` — carry on forward, the common case — or an opaque directive. Hermes never
+    looks inside that directive; it hands it, unchanged, to the ``resumes`` adapter's
+    ``set_followup`` and re-runs the pipeline from there. Keeping the directive opaque is
+    what stops the orchestrator from growing an opinion about research quality.
+
+    ``max_passes`` bounds the edge per run. It is the whole termination argument: nothing
+    about the second pass guarantees ``inspect`` will be satisfied by it, and a policy
+    that kept asking until it was would be an unbounded spend dressed up as autonomy.
+    """
+
+    observes: Stage
+    resumes: Stage
+    inspect: Callable[[object], object | None]
+    max_passes: int = 1
+
+    def __post_init__(self) -> None:
+        if self.max_passes < 1:
+            raise ValueError("max_passes must be at least 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +254,7 @@ class Hermes:
         adapters: Mapping[Stage, StageAdapter],
         gates: Mapping[Stage, StageGate | None] | None = None,
         retry: StageRetryPolicy | Mapping[Stage, StageRetryPolicy] | None = None,
+        recovery: RecoveryPolicy | None = None,
         budget: RunBudget | None = None,
         clock: Clock | None = None,
         artifacts: ArtifactStore | None = None,
@@ -243,9 +281,42 @@ class Hermes:
         else:
             self._retry = {stage: StageRetryPolicy() for stage in self._stages}
 
+        self._recovery = self._validated_recovery(recovery)
+        #: Backward edges already spent, per run id. Instance state rather than a field
+        #: on ``Run`` because production builds one Hermes per run — including per
+        #: resume, see ``periplus.api.runs.RunStore``. A run picked back up after a
+        #: crash therefore gets a fresh allowance; its budget, which is seeded from
+        #: everything already spent, does not.
+        self._recovery_passes: dict[str, int] = {}
+
         self.budget = budget or RunBudget()
         self.clock = clock or SystemClock()
         self.artifacts = artifacts or InMemoryArtifactStore()
+
+    def _validated_recovery(self, recovery: RecoveryPolicy | None) -> RecoveryPolicy | None:
+        """Reject a recovery policy this pipeline cannot actually honour, at build time.
+
+        All three of these would otherwise be a silent no-op at run time — a backward
+        edge configured, charged for in review, and never taken.
+        """
+        if recovery is None:
+            return None
+        if recovery.observes not in self._stages or recovery.resumes not in self._stages:
+            raise StageOrderError(
+                f"recovery policy names {recovery.observes.value}/{recovery.resumes.value}, "
+                f"but this pipeline runs {[stage.value for stage in self._stages]}"
+            )
+        if self._stages.index(recovery.resumes) >= self._stages.index(recovery.observes):
+            raise StageOrderError(
+                f"recovery must resume before it observes; "
+                f"{recovery.resumes.value} does not precede {recovery.observes.value}"
+            )
+        if not hasattr(self._adapters[recovery.resumes], "set_followup"):
+            raise StageOrderError(
+                f"the {recovery.resumes.value} adapter has no set_followup, so it cannot "
+                "receive a recovery directive"
+            )
+        return recovery
 
     async def start(
         self,
@@ -334,7 +405,8 @@ class Hermes:
         is_cancelled: Callable[[], bool],
     ) -> None:
         current = stage_input
-        for index in range(start_index, len(self._stages)):
+        index = start_index
+        while index < len(self._stages):
             stage = self._stages[index]
             result = await self._attempt_stage(run, stage, current, tracker, is_cancelled)
             if result is None:
@@ -344,7 +416,57 @@ class Hermes:
                 return
             current = result.artifact
             _attach(run, stage, current)
+
+            if self._recovery is not None and stage is self._recovery.resumes:
+                # The directive has been honoured. Clearing it here, rather than inside
+                # the adapter's run(), is what lets a transiently-failed followup attempt
+                # be retried as a followup instead of silently becoming a fresh sweep.
+                self._adapters[stage].set_followup(None)
+
+            jump = self._recovery_jump(run, stage, current)
+            if jump is not None:
+                index, current = jump
+                continue
+            index += 1
         _transition_run(run, RunStatus.SUCCEEDED, clock=self.clock)
+
+    def _recovery_jump(
+        self, run: Run, stage: Stage, artifact: object
+    ) -> tuple[int, object] | None:
+        """Decide whether this stage's artifact sends the pipeline backwards, and prepare it.
+
+        Returns the index to continue from and the input to feed it, or ``None`` to carry
+        on forward. Only ever consulted for an artifact that already passed its gate: a
+        stage that failed never gets here, so a backward edge can never paper over a
+        failure — it only ever acts on output that was good enough to continue with and
+        still is not good enough to be worth continuing with.
+        """
+        policy = self._recovery
+        if policy is None or stage is not policy.observes:
+            return None
+        used = self._recovery_passes.get(run.id, 0)
+        if used >= policy.max_passes:
+            return None
+
+        directive = policy.inspect(artifact)
+        if directive is None:
+            return None
+
+        index = self._stages.index(policy.resumes)
+        if index == 0:
+            stage_input: object = run.brief
+        else:
+            retained = self.artifacts.latest_passed(run.id, self._stages[index - 1])
+            if retained is None:
+                # The artifact store forgot the boundary this pass would resume from —
+                # the same condition replay refuses on. Carrying on forward with a
+                # merely-imperfect result beats failing a run that has one.
+                return None
+            stage_input = retained.artifact
+
+        self._adapters[policy.resumes].set_followup(directive)
+        self._recovery_passes[run.id] = used + 1
+        return index, stage_input
 
     async def _attempt_stage(
         self,

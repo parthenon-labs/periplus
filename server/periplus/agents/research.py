@@ -4,6 +4,14 @@ Query planning is deterministic. The model is used only where judgement is usefu
 identifying candidate places and expressing atomic claims. Its claimed quotations are
 not trusted. Every quotation is rebound through ``SourceDocument.evidence_for`` before
 it may enter a :class:`ResearchBundle`.
+
+Explorer runs twice at most. The second run, if it happens, is a
+:class:`ResearchFollowup`: a targeted second look at the handful of subjects Auditor
+could not confirm from the first pass's sources, extending that pass's bundle rather
+than replacing it. It is still deterministic query planning — see
+:func:`build_followup_queries` — and the model is still only asked to read and quote.
+Nothing here decides *whether* a followup happens; that is Hermes's call, bounded to one
+pass per run. See :mod:`periplus.orchestrator.stages`.
 """
 
 from __future__ import annotations
@@ -85,6 +93,22 @@ class ResearchExtraction(Draft):
     gaps: list[str] = Field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class ResearchFollowup:
+    """A second, targeted research pass over what verification could not confirm.
+
+    ``subjects`` are claim subjects, not queries: the caller decides *what* was left
+    unsettled, :func:`build_followup_queries` decides how to go looking for it.
+
+    ``base`` is the bundle the first pass produced. The followup extends it — a claim
+    already grounded and already confirmed is never re-researched, never re-quoted and
+    never lost, and evidence URLs already read are not paid for a second time.
+    """
+
+    subjects: tuple[str, ...]
+    base: ResearchBundle
+
+
 @dataclass(slots=True)
 class ResearchOutcome:
     bundle: ResearchBundle
@@ -162,6 +186,47 @@ def build_research_queries(brief: TripBrief, *, limit: int | None = 12) -> list[
     return unique
 
 
+def build_followup_queries(
+    brief: TripBrief, subjects: tuple[str, ...], *, limit: int | None = 12
+) -> list[str]:
+    """Build a targeted second search plan for subjects the first pass left unsettled.
+
+    Deterministic for the same reason :func:`build_research_queries` is: a model asked to
+    invent follow-up queries would drift towards whatever it already believes about the
+    destination, which is the failure this pipeline exists to avoid. The two queries per
+    subject go after the two things that actually settle a travel claim — the operator's
+    own page, and current opening/price/closure detail — rather than more of the general
+    reading the first pass already did.
+    """
+    if limit is not None and limit <= 0:
+        return []
+    destination = _clean(brief.destination)
+    dates = f"{brief.start_date:%B %Y}"
+    candidates: list[str] = []
+    for subject in subjects:
+        cleaned = _clean(subject)
+        if not cleaned:
+            continue
+        candidates.extend(
+            [
+                f"{cleaned} {destination} official site opening hours tickets {dates}",
+                f"{cleaned} {destination} closure changes announcement {dates}",
+            ]
+        )
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for query in candidates:
+        key = query.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(query)
+        if limit is not None and len(unique) == limit:
+            break
+    return unique
+
+
 class ResearchAgent:
     """Research one brief using bounded retrieval and grounded structured extraction."""
 
@@ -200,6 +265,7 @@ class ResearchAgent:
         self,
         brief: TripBrief,
         *,
+        followup: ResearchFollowup | None = None,
         on_progress: Callable[[int, int], None] | None = None,
         on_bundle_progress: Callable[[int, int], None] | None = None,
     ) -> ResearchOutcome:
@@ -209,15 +275,33 @@ class ResearchAgent:
         fires alongside it with the bundle's running totals, pre-dedup — another live
         signal only, since dedup/trim below may still shrink both before the final
         outcome is returned.
+
+        ``followup`` turns this into a targeted second pass: the search plan narrows to
+        the subjects it names, the bundle it carries is extended rather than replaced,
+        and every URL that bundle already cites is excluded from retrieval up front, so
+        a second pass can only ever add reading material the first one did not have.
         """
-        planned_queries = build_research_queries(brief, limit=None)
+        if followup is None:
+            planned_queries = build_research_queries(brief, limit=None)
+            bundle = ResearchBundle(brief_id=brief.id)
+            seen_urls: set[str] = set()
+        else:
+            planned_queries = build_followup_queries(brief, followup.subjects, limit=None)
+            bundle = _base_for_followup(followup)
+            seen_urls = {_source_key(str(item.url)) for item in bundle.evidence}
+            bundle.gaps.append(
+                "Followup pass: re-researched "
+                f"{len(followup.subjects)} subject(s) verification could not confirm — "
+                + ", ".join(followup.subjects)
+                + "."
+            )
+
         queries = planned_queries[: self.max_queries]
-        retrieval = await self.retriever.gather(queries, subject=brief.destination)
-        bundle = ResearchBundle(
-            brief_id=brief.id,
-            queries_run=retrieval.queries_run,
-            gaps=list(retrieval.failures),
+        retrieval = await self.retriever.gather(
+            queries, subject=brief.destination, seen_urls=seen_urls
         )
+        bundle.queries_run.extend(retrieval.queries_run)
+        bundle.gaps.extend(retrieval.failures)
         outcome = ResearchOutcome(
             bundle=bundle,
             queries_attempted=retrieval.queries_attempted,
@@ -524,6 +608,29 @@ def _trim_claims(bundle: ResearchBundle, *, max_claims: int) -> None:
     bundle.gaps.append(
         f"Research claim limit of {max_claims} was reached; {len(dropped)} claim(s) were dropped."
     )
+
+
+def _base_for_followup(followup: ResearchFollowup) -> ResearchBundle:
+    """The first pass's bundle, copied and stripped back to research state.
+
+    ``followup.base`` is whatever artifact the caller had in hand, which in the live
+    pipeline is the *verified* bundle — a ``ResearchBundle`` subclass whose claims carry
+    Auditor's checks. Rebuilding a plain ``ResearchBundle`` here keeps this stage's
+    output the shape the next stage expects, and clearing the checks keeps the "claims
+    here are unverified by construction" promise in :class:`ResearchBundle`'s own
+    docstring true even on the second pass. Auditor re-runs over the merged bundle
+    afterwards and writes them again; nothing depends on carrying them across.
+    """
+    source = followup.base
+    copied = ResearchBundle(
+        brief_id=source.brief_id,
+        places=[place.model_copy(deep=True) for place in source.places],
+        claims=[claim.model_copy(deep=True, update={"check": None}) for claim in source.claims],
+        evidence=[item.model_copy(deep=True) for item in source.evidence],
+        queries_run=list(source.queries_run),
+        gaps=list(source.gaps),
+    )
+    return copied
 
 
 def _clean(value: str) -> str:

@@ -167,6 +167,20 @@ class Settings(BaseSettings):
     )
     stage_retry_backoff_seconds: float = Field(default=1.0, ge=0)
 
+    # One bounded backward edge: when verification leaves claims unconfirmed, research
+    # runs a second, targeted pass over those subjects and verification re-runs over the
+    # merged bundle. Off makes the pipeline strictly forward again. Both passes are
+    # ordinary stage attempts charged against the run budget above, so max_run_tokens and
+    # friends remain the real ceiling on what this can cost.
+    research_followup_enabled: bool = True
+    max_followup_subjects: int = Field(
+        default=5,
+        ge=1,
+        description="Unconfirmed subjects a followup pass may re-research. The cap is "
+        "what keeps a bundle where nothing was confirmed from turning one bounded "
+        "second pass into a full second sweep.",
+    )
+
     @property
     def has_api_key(self) -> bool:
         return bool(self.llm_api_key.get_secret_value())

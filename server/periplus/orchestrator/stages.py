@@ -40,7 +40,7 @@ from periplus.agents.content import ContentAgent
 from periplus.agents.editor import EditorAgent
 from periplus.agents.illustration import IllustrationAgent
 from periplus.agents.navigation import NavigationAgent
-from periplus.agents.research import ResearchAgent
+from periplus.agents.research import ResearchAgent, ResearchFollowup
 from periplus.agents.verification import VerificationAgent
 from periplus.models import (
     Artifact,
@@ -50,6 +50,7 @@ from periplus.models import (
     ResearchBundle,
     Stage,
     TripBrief,
+    Verdict,
     VerifiedBundle,
 )
 from periplus.orchestrator.budget import ResourceUsage
@@ -129,6 +130,47 @@ def content_gate(content: ContentSet) -> str | None:
 edit_gate = content_gate
 
 
+#: The verdicts that mean a claim is settled and a second look at its subject would buy
+#: nothing. Deliberately narrower than :data:`~periplus.models.USABLE_VERDICTS`, which
+#: also contains ``stale``: a stale claim is one the evidence supports but no longer
+#: recently enough, which is exactly the hole a fresh, targeted search can fill.
+CONFIRMED_VERDICTS: frozenset[Verdict] = frozenset({Verdict.SUPPORTED, Verdict.PARTIAL})
+
+
+def unconfirmed_research(
+    verified: VerifiedBundle, *, max_subjects: int = 5
+) -> ResearchFollowup | None:
+    """What a second, targeted research pass should go looking for — or ``None``.
+
+    A claim Auditor could not confirm is not a failure to retry. The verification stage
+    did its job: it read the evidence attached to that claim and reported honestly that
+    the evidence does not settle it. Running the identical stage again would produce the
+    identical verdict, because the input has not changed. What has to change is the
+    reading material, and that means going back to Explorer — for those subjects only.
+
+    Returns ``None`` when every claim came back confirmed, which is the common case and
+    costs a run nothing. Subjects are returned in first-appearance order and capped, so
+    the same bundle always produces the same followup, and a bundle where everything is
+    unconfirmed cannot turn a bounded second pass into an unbounded one.
+    """
+    subjects: list[str] = []
+    seen: set[str] = set()
+    for claim in verified.claims:
+        if claim.verdict in CONFIRMED_VERDICTS:
+            continue
+        subject = claim.subject.strip()
+        key = subject.casefold()
+        if not subject or key in seen:
+            continue
+        seen.add(key)
+        subjects.append(subject)
+        if len(subjects) == max_subjects:
+            break
+    if not subjects:
+        return None
+    return ResearchFollowup(subjects=tuple(subjects), base=verified)
+
+
 #: The default gate per stage. Passing ``gates={Stage.X: None}`` to :class:`Hermes`
 #: disables one explicitly rather than silently.
 #:
@@ -171,6 +213,7 @@ class ResearchStageAdapter:
         self._agent = agent
         self._on_progress: Callable[[int, int], None] | None = None
         self._on_bundle_progress: Callable[[int, int], None] | None = None
+        self._followup: ResearchFollowup | None = None
 
     def set_progress_callback(self, callback: Callable[[int, int], None] | None) -> None:
         self._on_progress = callback
@@ -178,9 +221,20 @@ class ResearchStageAdapter:
     def set_bundle_progress_callback(self, callback: Callable[[int, int], None] | None) -> None:
         self._on_bundle_progress = callback
 
+    def set_followup(self, followup: ResearchFollowup | None) -> None:
+        """Aim the next attempt at a specific set of unconfirmed subjects, or clear it.
+
+        Held across attempts rather than consumed by :meth:`run`, so a followup attempt
+        that fails transiently and is retried is still a followup attempt — consuming it
+        on entry would quietly turn the retry into a full second sweep that discards the
+        first pass's bundle. Hermes clears it once the attempt succeeds.
+        """
+        self._followup = followup
+
     async def run(self, stage_input: TripBrief) -> StageResult:
         outcome = await self._agent.research(
             stage_input,
+            followup=self._followup,
             on_progress=self._on_progress,
             on_bundle_progress=self._on_bundle_progress,
         )

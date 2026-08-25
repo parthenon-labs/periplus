@@ -147,6 +147,26 @@ Exact duplicate claims merge across batches and may retain several independent e
 records up to a configured cap. This is syntactic deduplication only. Semantic conflict
 and corroboration belong to Auditor, not Explorer.
 
+Explorer runs at most twice. A claim Auditor could not confirm is not a stage to retry —
+verification did its job and reported honestly that the attached evidence does not settle
+the claim, and running it again over the same evidence would say the same thing. What has
+to change is the reading material. So when verification leaves claims unconfirmed,
+`unconfirmed_research` collects those claim *subjects* and Hermes re-runs Explorer with a
+`ResearchFollowup`: a narrowed, still-deterministic query plan aimed at those subjects
+only (`build_followup_queries`), with every URL the first pass already cited excluded up
+front, extending the first pass's bundle rather than replacing it. Verification then
+re-runs over the merged bundle. `stale` counts as unconfirmed even though it is a usable
+verdict — supported by evidence that is simply too old is exactly the hole a fresh search
+fills.
+
+The bound is one pass, and the bound is the point. Nothing guarantees the second pass
+satisfies the inspector either, and a loop that kept going until it was would be an
+unbounded spend dressed up as autonomy. Both passes are ordinary stage attempts with
+their own `StageRun` records charged against the same `RunBudget`, so a run that took a
+second look says so in its audit trail rather than hiding it inside one stage, and
+`max_run_tokens` remains the real ceiling on what it can cost. `research_followup_enabled`
+turns the edge off and makes the pipeline strictly forward again.
+
 ## Orchestration: Hermes
 
 Hermes owns everything that is not a stage. It knows nothing about retrieval, prompts or
@@ -159,6 +179,17 @@ model providers — only whether the next stage may run.
   write`, starting at research. A run may stop after plan and skip Chronicler, but it may
   never run write without having run everything before it. Configuring a gap (verify
   without research) is rejected at construction, not at run time.
+- **One bounded backward edge** — a `RecoveryPolicy` is the single exception to that
+  forward-only rule. It names a stage to observe, a stage to resume from, and an
+  `inspect` callable that reads the observed stage's gate-passed artifact and returns
+  either nothing or an opaque directive. Hermes never looks inside the directive: it
+  hands it to the resumed adapter's `set_followup` and re-runs from there, spending one
+  of `max_passes`. Deciding what "not good enough" means stays with the stages, which is
+  why the orchestrator can carry this without growing an opinion about research quality.
+  A policy naming a stage this pipeline does not run, pointing forwards instead of
+  backwards, or aimed at an adapter with no `set_followup` is rejected at construction —
+  a backward edge that silently never fires reads as a feature it is not. The live
+  pipeline wires exactly one: verify observes, research resumes.
 - **Stage gates** — a stage adapter returning without raising is not enough to advance.
   Each stage has a gate — a predicate over the produced artifact — that must pass first;
   the default research gate requires at least one grounded claim, the default

@@ -5,9 +5,14 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from periplus.agents.research import ResearchAgent, build_research_queries
+from periplus.agents.research import (
+    ResearchAgent,
+    ResearchFollowup,
+    build_followup_queries,
+    build_research_queries,
+)
 from periplus.llm import ScriptedClient, StagePolicy, Thinking
-from periplus.models import ClaimKind, Party, Stage, TripBrief
+from periplus.models import Claim, ClaimKind, Evidence, Party, ResearchBundle, Stage, TripBrief
 from periplus.retrieval import RetrievalResult, SourceDocument
 
 
@@ -15,9 +20,11 @@ class FixedRetriever:
     def __init__(self, result: RetrievalResult) -> None:
         self.result = result
         self.calls: list[tuple[list[str], str | None]] = []
+        self.seen_urls: list[set[str] | None] = []
 
     async def gather(self, queries, *, subject=None, seen_urls=None):
         self.calls.append((list(queries), subject))
+        self.seen_urls.append(None if seen_urls is None else set(seen_urls))
         return self.result
 
 
@@ -433,3 +440,149 @@ class TestClaimCeiling:
 
         assert len(outcome.bundle.claims) == 1
         assert not any("claim limit" in gap for gap in outcome.bundle.gaps)
+
+
+def prior_bundle() -> ResearchBundle:
+    """A first pass's bundle: one grounded claim, one piece of evidence behind it."""
+    evidence = Evidence(
+        id="ev-prior",
+        url="https://sydneyoperahouse.com/visit",
+        snippet="The Sydney Opera House is open daily from 9am.",
+    )
+    return ResearchBundle(
+        brief_id="brief-1",
+        claims=[
+            Claim(
+                id="claim-prior",
+                subject="Sydney Harbour Bridge",
+                text="The BridgeClimb runs at dawn.",
+                kind=ClaimKind.HOURS,
+                evidence_ids=[evidence.id],
+            )
+        ],
+        evidence=[evidence],
+        queries_run=["sydney attractions official"],
+        gaps=["one site blocked us"],
+    )
+
+
+class TestFollowupQueryPlan:
+    def test_is_deterministic_and_targets_each_subject(self):
+        trip = brief()
+        subjects = ("Sydney Opera House", "Bondi Beach")
+
+        first = build_followup_queries(trip, subjects, limit=None)
+        assert first == build_followup_queries(trip, subjects, limit=None)
+        assert len(first) == 4
+        assert all("Sydney" in query for query in first)
+        assert any("Bondi Beach" in query for query in first)
+
+    def test_asks_for_what_settles_a_travel_claim(self):
+        queries = build_followup_queries(brief(), ("Sydney Opera House",), limit=None)
+
+        assert any("official site" in query for query in queries)
+        assert any("closure" in query for query in queries)
+        # The month is carried through, the same way the first-pass plan carries it.
+        assert all("October 2026" in query for query in queries)
+
+    def test_is_bounded_and_ignores_blank_subjects(self):
+        assert build_followup_queries(brief(), ("A", "B", "C"), limit=3) == build_followup_queries(
+            brief(), ("A", "B", "C"), limit=3
+        )
+        assert len(build_followup_queries(brief(), ("A", "B", "C"), limit=3)) == 3
+        assert build_followup_queries(brief(), ("   ",), limit=None) == []
+        assert build_followup_queries(brief(), ("A",), limit=0) == []
+
+
+class TestFollowupPass:
+    """The second, targeted pass extends the first rather than replacing it."""
+
+    def _agent(self, quote: str = "Guided tours cost AUD 45."):
+        retrieval = RetrievalResult(
+            documents=[document(url="https://sydneyoperahouse.com/tours", text=quote)],
+            queries_run=["opera tours"],
+            queries_attempted=1,
+            fetch_attempts=1,
+        )
+        reply = extraction(quote=quote, text=quote)
+        return agent([reply], retrieval)
+
+    async def test_the_prior_bundles_claims_and_evidence_survive(self):
+        explorer, _ = self._agent()
+        base = prior_bundle()
+
+        outcome = await explorer.research(
+            brief(),
+            followup=ResearchFollowup(subjects=("Sydney Opera House",), base=base),
+        )
+
+        subjects = {claim.subject for claim in outcome.bundle.claims}
+        assert subjects == {"Sydney Harbour Bridge", "Sydney Opera House"}
+        assert "ev-prior" in {item.id for item in outcome.bundle.evidence}
+        # The first pass's own reporting travels with it.
+        assert "one site blocked us" in outcome.bundle.gaps
+        assert "sydney attractions official" in outcome.bundle.queries_run
+
+    async def test_the_search_plan_narrows_to_the_named_subjects(self):
+        explorer, _ = self._agent()
+
+        await explorer.research(
+            brief(),
+            followup=ResearchFollowup(subjects=("Sydney Opera House",), base=prior_bundle()),
+        )
+
+        queries, subject = explorer.retriever.calls[0]
+        assert subject == "Sydney"
+        assert queries == build_followup_queries(brief(), ("Sydney Opera House",), limit=None)
+
+    async def test_pages_the_first_pass_already_read_are_not_paid_for_twice(self):
+        explorer, _ = self._agent()
+
+        await explorer.research(
+            brief(),
+            followup=ResearchFollowup(subjects=("Sydney Opera House",), base=prior_bundle()),
+        )
+
+        assert explorer.retriever.seen_urls[0] == {"sydneyoperahouse.com/visit"}
+
+    async def test_the_pass_says_so_in_the_bundles_own_gaps(self):
+        explorer, _ = self._agent()
+
+        outcome = await explorer.research(
+            brief(),
+            followup=ResearchFollowup(subjects=("Sydney Opera House",), base=prior_bundle()),
+        )
+
+        assert any(
+            "Followup pass" in gap and "Sydney Opera House" in gap
+            for gap in outcome.bundle.gaps
+        )
+
+    async def test_prior_verdicts_are_cleared_so_the_artifact_is_research_shaped(self):
+        from periplus.models import Check, Verdict, VerifiedBundle
+
+        explorer, _ = self._agent()
+        base = prior_bundle()
+        base.claims[0].check = Check(
+            verdict=Verdict.NO_EVIDENCE, confidence=1.0, reason="Nothing supported it."
+        )
+        verified = VerifiedBundle(**base.model_dump())
+
+        outcome = await explorer.research(
+            brief(),
+            followup=ResearchFollowup(subjects=("Sydney Opera House",), base=verified),
+        )
+
+        assert type(outcome.bundle) is ResearchBundle
+        assert all(claim.check is None for claim in outcome.bundle.claims)
+
+    async def test_a_followup_that_finds_nothing_still_returns_the_first_passs_work(self):
+        explorer, _ = agent([], RetrievalResult(failures=["everything blocked"]))
+
+        outcome = await explorer.research(
+            brief(),
+            followup=ResearchFollowup(subjects=("Sydney Opera House",), base=prior_bundle()),
+        )
+
+        assert [claim.id for claim in outcome.bundle.claims] == ["claim-prior"]
+        assert "everything blocked" in outcome.bundle.gaps

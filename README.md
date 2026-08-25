@@ -122,6 +122,8 @@ Periplus distinguishes failures that ordinary agent demos often collapse togethe
 - malformed structured output enters a bounded repair path;
 - transient provider failures may retry, while logical stage failures do not;
 - a stage with no usable artifact fails its gate instead of silently advancing;
+- claims verification could not confirm buy one targeted, bounded second research pass —
+  not a retry of the stage that already answered correctly, and not an open-ended loop;
 - retrieval and verification gaps survive into the final result as inspectable data.
 
 This makes a partially verified itinerary more useful than an apparently complete,
