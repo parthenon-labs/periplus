@@ -20,7 +20,7 @@ mid-flight run. What survives a restart depends on which optional backends are w
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import uuid4
@@ -138,6 +138,8 @@ class RunStore:
         self._persistence = persistence
         self._artifacts = artifacts
         self._entries: dict[str, RunEntry] = {}
+        #: Strong references to in-flight persistence writes; see :meth:`_spawn_write`.
+        self._writes: set[asyncio.Task[None]] = set()
 
     async def open(self) -> None:
         """Bring the storage backends up, if there are any, then resume anything left
@@ -152,11 +154,45 @@ class RunStore:
             await self._resume_crashed_runs()
 
     async def close(self) -> None:
-        """Mirror of :meth:`open` for app shutdown."""
+        """Mirror of :meth:`open` for app shutdown.
+
+        Pending persistence writes are drained *before* the backends they write through
+        are closed. Shutting Postgres down underneath a half-finished ``save_finished``
+        is the same lost terminal status :meth:`_spawn_write` exists to prevent, just
+        arrived at from the other side.
+        """
+        await self.drain()
         if self._persistence is not None:
             await self._persistence.close()
         if self._artifacts is not None:
             await self._artifacts.close()
+
+    async def drain(self) -> None:
+        """Wait until no background persistence write is still in flight.
+
+        Loops rather than awaiting one batch: a run finishing while the first batch is
+        being awaited spawns its own write from a done callback, and that write is
+        exactly the one worth waiting for. Exceptions are deliberately not retrieved
+        here — ``asyncio.wait`` leaves them on the task, so a failed write still reaches
+        the event loop's default handler instead of being silently absorbed by shutdown.
+        """
+        while self._writes:
+            await asyncio.wait(tuple(self._writes))
+
+    def _spawn_write(self, coro: Coroutine[object, object, None]) -> None:
+        """Run a persistence write in the background, holding it reachable until it ends.
+
+        ``asyncio.ensure_future`` on its own is not enough. The event loop keeps only a
+        weak reference to a running task, so a write nobody else holds may be garbage
+        collected mid-flight — at any point, not merely at process exit. For
+        ``save_finished`` that is not a lost history row but a self-inflicted wound: the
+        run stays recorded ``running``, and :meth:`_resume_crashed_runs` treats a
+        ``running`` row from a prior process as a crash, so the next startup replays a
+        run that already succeeded and pays for its model calls a second time.
+        """
+        task = asyncio.ensure_future(coro)
+        self._writes.add(task)
+        task.add_done_callback(self._writes.discard)
 
     def submit(self, brief: TripBrief) -> RunEntry:
         run_id = uuid4().hex
@@ -172,10 +208,10 @@ class RunStore:
         entry.task = task
         task.add_done_callback(lambda done: self._finish(entry, done))
         if self._persistence is not None:
-            # Fire-and-forget, same reasoning as _finish below: a failed write here
-            # loses this run's ability to be noticed as crashed later, not anything the
-            # current process needs back.
-            asyncio.ensure_future(self._persistence.save_started(run_id=run_id, brief=brief))
+            # Not awaited: a failed write here loses this run's ability to be noticed as
+            # crashed later, not anything the current process needs back. Still held
+            # reachable — see _spawn_write.
+            self._spawn_write(self._persistence.save_started(run_id=run_id, brief=brief))
         self._entries[run_id] = entry
         return entry
 
@@ -189,9 +225,11 @@ class RunStore:
             else:
                 entry.result = task.result()
         if self._persistence is not None:
-            # Fire-and-forget: a failed write here loses history, not the in-memory
-            # entry a same-process caller polls next — that stays authoritative.
-            asyncio.ensure_future(
+            # Not awaited — this runs inside a task's done callback, which cannot await —
+            # but held reachable until it completes: this is the write that records the
+            # run's terminal status, and losing it is what strands a finished run as
+            # ``running`` forever. See _spawn_write.
+            self._spawn_write(
                 self._persistence.save_finished(
                     run_id=entry.run_id,
                     brief=entry.brief,

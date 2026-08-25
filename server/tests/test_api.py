@@ -10,6 +10,7 @@ Postgres — the store's merge/fallback logic is what is under test there, not p
 from __future__ import annotations
 
 import asyncio
+import gc
 import threading
 import time
 from dataclasses import dataclass, field
@@ -367,6 +368,80 @@ class TestRunStorePersistence:
 
         gate.set()
         await entry.task
+
+
+@dataclass
+class GatedRunPersistence(FakeRunPersistence):
+    """A persistence fake whose terminal write blocks until the test releases it.
+
+    Exists to make the window between "the run finished" and "the row says so" wide
+    enough to assert on. ``opened_during_write`` records whether the backend was still
+    open at the moment the write landed, which is what proves shutdown drains before it
+    closes rather than after.
+    """
+
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+    opened_during_write: bool | None = None
+
+    async def save_finished(self, **kwargs) -> None:
+        await self.release.wait()
+        self.opened_during_write = self.opened
+        await super().save_finished(**kwargs)
+
+
+class TestRunStoreWriteDurability:
+    """The terminal ``save_finished`` write is background work the store still owns.
+
+    Losing it does not merely lose history: the row stays ``running``, and
+    ``_resume_crashed_runs`` reads a ``running`` row from a prior process as a crash, so
+    the next startup replays a run that already succeeded.
+    """
+
+    async def test_a_pending_terminal_write_is_not_lost_to_garbage_collection(self):
+        persistence = GatedRunPersistence()
+        store = RunStore(fake_hermes_factory(), persistence=persistence)
+
+        entry = store.submit(brief())
+        await entry.task
+        await asyncio.sleep(0)  # let the task's done callback spawn the write
+
+        # The sweep that used to be able to eat a write held by nothing but the event
+        # loop's own weak reference to it.
+        gc.collect()
+
+        persistence.release.set()
+        await store.drain()
+
+        assert persistence.rows[entry.run_id].status == RunStatus.SUCCEEDED
+
+    async def test_close_drains_pending_writes_before_closing_the_backend(self):
+        persistence = GatedRunPersistence()
+        store = RunStore(fake_hermes_factory(), persistence=persistence)
+        await store.open()
+
+        entry = store.submit(brief())
+        await entry.task
+        await asyncio.sleep(0)
+
+        closing = asyncio.ensure_future(store.close())
+        await asyncio.sleep(0)
+        assert not closing.done(), "close returned while a terminal write was still pending"
+
+        persistence.release.set()
+        await closing
+
+        assert persistence.rows[entry.run_id].status == RunStatus.SUCCEEDED
+        assert persistence.opened_during_write is True
+        assert persistence.opened is False
+
+    async def test_drain_is_a_no_op_without_persistence(self):
+        store = RunStore(fake_hermes_factory())
+
+        entry = store.submit(brief())
+        await entry.task
+        await store.drain()
+
+        assert entry.result is not None
 
 
 class OneShotVerify:
