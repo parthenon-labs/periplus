@@ -26,6 +26,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from periplus.models import Run, RunStatus, Stage, StageRun, TripBrief
+from periplus.observability import get_logger
 from periplus.orchestrator import STAGE_ORDER, Hermes
 
 #: Builds one Hermes instance per brief. Production wiring is
@@ -33,6 +34,9 @@ from periplus.orchestrator import STAGE_ORDER, Hermes
 #: a factory over fake stage adapters instead, the same substitution every other
 #: live-provider seam in this codebase accepts.
 HermesFactory = Callable[[TripBrief], Hermes]
+
+
+logger = get_logger("api.runs")
 
 
 class RunNotFound(KeyError):
@@ -73,6 +77,10 @@ class RunPersistence(Protocol):
     async def load(self, run_id: str) -> _PersistedRecord | None: ...
 
     async def load_all(self) -> list[_PersistedRecord]: ...
+
+    # ``ping`` is deliberately absent: it is optional, and adding it here would oblige
+    # every test fake to grow a method only :meth:`RunStore.check_persistence` calls,
+    # which looks it up with ``getattr`` and treats its absence as "nothing to check".
 
 
 @dataclass(slots=True)
@@ -172,14 +180,15 @@ class RunStore:
 
         Loops rather than awaiting one batch: a run finishing while the first batch is
         being awaited spawns its own write from a done callback, and that write is
-        exactly the one worth waiting for. Exceptions are deliberately not retrieved
-        here — ``asyncio.wait`` leaves them on the task, so a failed write still reaches
-        the event loop's default handler instead of being silently absorbed by shutdown.
+        exactly the one worth waiting for. ``asyncio.wait`` rather than ``gather``
+        because each task's own done callback already logs its failure (see
+        :meth:`_spawn_write`); gathering would retrieve the exception a second time here
+        and give shutdown a reason to raise over a write it has already reported.
         """
         while self._writes:
             await asyncio.wait(tuple(self._writes))
 
-    def _spawn_write(self, coro: Coroutine[object, object, None]) -> None:
+    def _spawn_write(self, coro: Coroutine[object, object, None], *, description: str) -> None:
         """Run a persistence write in the background, holding it reachable until it ends.
 
         ``asyncio.ensure_future`` on its own is not enough. The event loop keeps only a
@@ -193,6 +202,27 @@ class RunStore:
         task = asyncio.ensure_future(coro)
         self._writes.add(task)
         task.add_done_callback(self._writes.discard)
+        task.add_done_callback(lambda done: self._report_write(description, done))
+
+    @staticmethod
+    def _report_write(description: str, task: asyncio.Task[None]) -> None:
+        """Give a failed background write somewhere to be seen.
+
+        Nothing awaits these tasks during normal operation, so without this a write that
+        failed would surface only as the event loop's "Task exception was never
+        retrieved" — at garbage-collection time, out of order, with no run id attached.
+        That is precisely the failure the caller most needs to know about: the row it
+        describes is now permanently out of step with what actually happened.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "persistence write failed",
+                exc_info=exc,
+                extra={"context": {"write": description}},
+            )
 
     def submit(self, brief: TripBrief) -> RunEntry:
         run_id = uuid4().hex
@@ -211,8 +241,15 @@ class RunStore:
             # Not awaited: a failed write here loses this run's ability to be noticed as
             # crashed later, not anything the current process needs back. Still held
             # reachable — see _spawn_write.
-            self._spawn_write(self._persistence.save_started(run_id=run_id, brief=brief))
+            self._spawn_write(
+                self._persistence.save_started(run_id=run_id, brief=brief),
+                description=f"save_started:{run_id}",
+            )
         self._entries[run_id] = entry
+        logger.info(
+            "run submitted",
+            extra={"context": {"run_id": run_id, "destination": brief.destination}},
+        )
         return entry
 
     def _finish(self, entry: RunEntry, task: asyncio.Task[Run]) -> None:
@@ -224,6 +261,16 @@ class RunStore:
                 entry.error = f"{type(exc).__name__}: {exc}"
             else:
                 entry.result = task.result()
+        logger.info(
+            "run finished",
+            extra={
+                "context": {
+                    "run_id": entry.run_id,
+                    "status": entry.status.value,
+                    "error": entry.error,
+                }
+            },
+        )
         if self._persistence is not None:
             # Not awaited — this runs inside a task's done callback, which cannot await —
             # but held reachable until it completes: this is the write that records the
@@ -236,7 +283,8 @@ class RunStore:
                     status=entry.status,
                     result=entry.result,
                     error=entry.error,
-                )
+                ),
+                description=f"save_finished:{entry.run_id}",
             )
 
     async def _resume_crashed_runs(self) -> None:
@@ -249,9 +297,17 @@ class RunStore:
         nothing has been submitted here.
         """
         assert self._persistence is not None and self._artifacts is not None
-        for record in await self._persistence.load_all():
-            if record.status is not RunStatus.RUNNING:
-                continue
+        stranded = [
+            record
+            for record in await self._persistence.load_all()
+            if record.status is RunStatus.RUNNING
+        ]
+        if stranded:
+            logger.info(
+                "resuming runs stranded by a previous process",
+                extra={"context": {"count": len(stranded)}},
+            )
+        for record in stranded:
             await self._resume_one(record.run_id, record.brief)
 
     async def _resume_one(self, run_id: str, brief: TripBrief) -> None:
@@ -263,6 +319,15 @@ class RunStore:
         if from_stage is None:
             # Died before any stage passed its gate — there is nothing to resume from;
             # a fresh start would silently pretend this attempt never happened instead.
+            logger.warning(
+                "run cannot be resumed",
+                extra={
+                    "context": {
+                        "run_id": run_id,
+                        "reason": "crashed before any stage passed its gate",
+                    }
+                },
+            )
             if self._persistence is not None:
                 await self._persistence.save_finished(
                     run_id=run_id,
@@ -287,6 +352,10 @@ class RunStore:
                 )
             return
         resume_from = STAGE_ORDER[next_index]
+        logger.info(
+            "resuming run",
+            extra={"context": {"run_id": run_id, "from_stage": resume_from.value}},
+        )
 
         run = Run(id=run_id, brief=brief, status=RunStatus.FAILED)
         # The stage we are about to resume may itself have partial, gate-failed
@@ -304,6 +373,30 @@ class RunStore:
         entry = RunEntry(run_id=run_id, brief=brief, task=task, live_run=run)
         task.add_done_callback(lambda done, entry=entry: self._finish(entry, done))
         self._entries[run_id] = entry
+
+    async def check_persistence(self) -> str:
+        """``"ok"``, ``"not configured"``, or why the backend could not be reached.
+
+        Deliberately a real round trip rather than "did ``open`` get called": a pool that
+        opened successfully an hour ago says nothing about whether the database is
+        answering now, and a health check that cannot fail is not a health check. Never
+        raises — reporting the failure *is* the job — and never includes the connection
+        string, which is where the credentials are.
+        """
+        if self._persistence is None:
+            return "not configured"
+        ping = getattr(self._persistence, "ping", None)
+        if ping is None:
+            return "ok"
+        try:
+            await ping()
+        except Exception as exc:  # noqa: BLE001 - any failure to answer is the answer
+            logger.warning(
+                "persistence health check failed",
+                extra={"context": {"error": f"{type(exc).__name__}: {exc}"}},
+            )
+            return f"unavailable: {type(exc).__name__}"
+        return "ok"
 
     async def get(self, run_id: str) -> RunEntry:
         entry = self._entries.get(run_id)

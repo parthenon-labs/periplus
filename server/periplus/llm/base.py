@@ -25,8 +25,11 @@ from pydantic import BaseModel, ValidationError
 
 from periplus.llm.pricing import estimate_cost_usd
 from periplus.models import ModelCall, Stage
+from periplus.observability import get_logger
 
 T = TypeVar("T", bound=BaseModel)
+
+logger = get_logger("llm")
 
 
 class Thinking(StrEnum):
@@ -223,6 +226,18 @@ class LLMClient(ABC):
             except TransientLLMError as exc:
                 calls.append(self._record(stage, policy.model, messages, started, error=str(exc)))
                 last_error = exc
+                logger.warning(
+                    "model call failed at the provider",
+                    extra={
+                        "context": {
+                            "stage": stage.value,
+                            "model": policy.model,
+                            "attempt": attempt,
+                            "of": self.max_attempts,
+                            "error": str(exc),
+                        }
+                    },
+                )
                 if attempt == self.max_attempts:
                     break
                 await asyncio.sleep(self.retry_backoff_seconds * attempt)
@@ -239,6 +254,18 @@ class LLMClient(ABC):
             except (ValueError, ValidationError) as exc:
                 last_error = exc
                 call.error = f"schema validation failed: {exc}"
+                logger.warning(
+                    "model output did not validate",
+                    extra={
+                        "context": {
+                            "stage": stage.value,
+                            "model": call.model,
+                            "attempt": attempt,
+                            "of": self.max_attempts,
+                            "error": str(exc)[:200],
+                        }
+                    },
+                )
                 if attempt == self.max_attempts:
                     break
                 messages = [
@@ -255,6 +282,17 @@ class LLMClient(ABC):
 
             return Completion(value=value, calls=calls)
 
+        logger.error(
+            "model call exhausted its attempts",
+            extra={
+                "context": {
+                    "stage": stage.value,
+                    "model": policy.model,
+                    "attempts": self.max_attempts,
+                    "transient": last_text is None,
+                }
+            },
+        )
         raise StructuredOutputError(
             f"{stage.value} stage: no valid response after {self.max_attempts} attempts "
             f"({last_error})",

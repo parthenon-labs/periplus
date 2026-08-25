@@ -5,6 +5,12 @@ Postgres-backed record of finished runs, nothing more. Run ``uvicorn
 periplus.api.app:app`` for local use; ``PERIPLUS_DATABASE_URL`` (and
 ``PERIPLUS_GOOGLE_MAPS_API_KEY`` and friends) still come from the environment the same
 way the CLI probe reads them.
+
+``GET /health`` is the one endpoint here that is not about trips. It exists because "the
+process is up" and "the process can do its job" are different questions, and only the
+second one is worth answering: it round-trips the database rather than reporting on a
+pool that opened successfully at some point in the past. A 503 from it means submitting a
+trip would produce a run nothing durable will remember.
 """
 
 from __future__ import annotations
@@ -12,14 +18,19 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 
 from periplus.api.runs import RunNotFound, RunStore
-from periplus.api.schemas import RunResultView, RunSummary, TripBriefCreate
+from periplus.api.schemas import HealthView, RunResultView, RunSummary, TripBriefCreate
 from periplus.config import get_settings
 from periplus.models import RunStatus
+from periplus.observability import configure_logging, get_logger
 from periplus.orchestrator import build_hermes
 from periplus.storage import PostgresArtifactStore, PostgresEvidenceCache, PostgresRunPersistence
+
+API_VERSION = "0.1.0"
+
+logger = get_logger("api.app")
 
 
 def create_app(*, run_store: RunStore | None = None) -> FastAPI:
@@ -39,8 +50,13 @@ def create_app(*, run_store: RunStore | None = None) -> FastAPI:
     entirely should not pay for that too; nor should merely importing this module, which
     happens whenever anything imports ``app`` below.
     """
+    settings = get_settings()
+    # Before anything else here can have something to say. Idempotent, so the many tests
+    # that build an app do not each add a handler.
+    configure_logging(level=settings.log_level, log_format=settings.log_format)
+
     owns_store = run_store is None
-    artifacts = PostgresArtifactStore(get_settings().database_url)
+    artifacts = PostgresArtifactStore(settings.database_url)
     evidence_cache: PostgresEvidenceCache | None = None
 
     def hermes_factory(brief):
@@ -48,7 +64,7 @@ def create_app(*, run_store: RunStore | None = None) -> FastAPI:
 
     store = run_store or RunStore(
         hermes_factory,
-        persistence=PostgresRunPersistence(get_settings().database_url),
+        persistence=PostgresRunPersistence(settings.database_url),
         artifacts=artifacts,
     )
 
@@ -60,7 +76,7 @@ def create_app(*, run_store: RunStore | None = None) -> FastAPI:
             await store.open()
             from periplus.storage import build_evidence_cache
 
-            evidence_cache = build_evidence_cache(get_settings())
+            evidence_cache = build_evidence_cache(settings)
             if evidence_cache is not None:
                 try:
                     await evidence_cache.open()
@@ -72,15 +88,37 @@ def create_app(*, run_store: RunStore | None = None) -> FastAPI:
                     # is not optional, so its own connectivity failure should still fail
                     # startup loudly.
                     evidence_cache = None
+        logger.info(
+            "api ready",
+            extra={
+                "context": {
+                    "version": API_VERSION,
+                    "evidence_cache": evidence_cache is not None,
+                    "owns_store": owns_store,
+                }
+            },
+        )
         try:
             yield
         finally:
+            logger.info("api shutting down", extra={"context": {"owns_store": owns_store}})
             if owns_store:
                 await store.close()
                 if evidence_cache is not None:
                     await evidence_cache.close()
 
-    app = FastAPI(title="Periplus", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Periplus", version=API_VERSION, lifespan=lifespan)
+
+    @app.get("/health", response_model=HealthView)
+    async def health(response: Response) -> HealthView:
+        view = HealthView.from_checks(
+            {"persistence": await store.check_persistence()}, version=API_VERSION
+        )
+        if not view.is_healthy:
+            # 503, not 200-with-a-body: a load balancer or a probe reads the status line,
+            # and a degraded service that answers 200 stays in rotation.
+            response.status_code = 503
+        return view
 
     @app.post("/trips", response_model=RunSummary, status_code=202)
     async def submit_trip(payload: TripBriefCreate) -> RunSummary:

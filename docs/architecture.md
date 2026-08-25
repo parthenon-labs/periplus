@@ -240,6 +240,37 @@ model providers — only whether the next stage may run.
 - **Audit trail** — every model call each stage adapter reports is attached to that
   attempt's `StageRun.calls`, including calls from attempts that later failed a gate, so
   `Run.total_tokens` reflects everything actually spent.
+- **Events** — the same moments are also emitted as structured log records: a stage
+  starting, succeeding, failing transiently, being rejected by its gate, exhausting the
+  budget, or triggering a backward pass, each carrying `run_id`, `stage`, `attempt`,
+  `duration_ms` and `tokens` as named fields. The audit trail answers "what did this run
+  do", readable once the run is over; the log answers "what is this run doing", readable
+  while it is stuck. Neither ever carries a prompt, a page body or a claim's text.
+
+## Observability
+
+Structured logging only, and deliberately so. Every event goes through `periplus`'s own
+logger tree as one record with a `context` dict of named fields, rendered either as JSON
+lines for a collector or as `key=value` text for a terminal (`PERIPLUS_LOG_FORMAT`).
+Grepping one run out of several interleaved is a `jq` filter on `run_id`, not a regex over
+prose. Three seams log: Hermes (the run and stage lifecycle above), the model seam (a
+provider failure, output that would not validate, a call that exhausted its attempts), and
+the run store (submission, completion, resume decisions, and — the one failure that was
+previously invisible anywhere — a background persistence write that did not land).
+
+OpenTelemetry, a metrics exporter and a span per stage are all defensible on a deployed
+service. This one is not deployed, and adding them would mean maintaining configuration in
+exchange for dashboards nobody reads; the honest version of "observability" here is that
+every event a deployed service would need is already emitted, structured, at the moment it
+happens.
+
+`GET /health` answers whether the process can do its job rather than whether it is
+running: it round-trips the database through the same pool a real query uses, so a
+connection the server dropped while the pool was idle is caught rather than reported
+healthy. `status` is derived from the checks, never set beside them, and a failure is
+reported as an exception *type* — a psycopg error message can carry the host and user it
+tried to connect as. Degraded answers 503, not 200 with a sad body, because a probe reads
+the status line.
 
 `ResearchStageAdapter` and `VerificationStageAdapter` (`periplus.orchestrator.stages`)
 are the narrow bridge from Hermes's generic `StageAdapter` protocol to Explorer and

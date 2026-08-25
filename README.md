@@ -155,6 +155,12 @@ Model access uses an OpenAI-compatible endpoint. Search, maps, illustration, the
 semantic evidence cache, and persistence are configured independently; see
 [`.env.example`](.env.example) for the complete surface.
 
+`GET /health` round-trips the database and answers 503 when it cannot, so "the process is
+up" and "the process can do its job" are separable. Events are structured: one JSON object
+per line by default, keyed by `run_id`, `stage` and `attempt`, so a run in flight can be
+followed with `jq` rather than only inspected afterwards through `/runs/{id}`. Set
+`PERIPLUS_LOG_FORMAT=text` for a readable terminal instead.
+
 ## Verify offline
 
 ```sh
@@ -222,6 +228,7 @@ server/periplus/
 ├── evals/           golden-set harness, metrics, thresholds, before/after reports
 ├── api/             run submission, progress, recovery, result contracts
 ├── models.py        every typed artifact and stage contract in one file
+├── observability.py structured log records and their JSON/text renderings
 └── config.py        the whole configurable surface, mirrored by .env.example
 
 server/evals/

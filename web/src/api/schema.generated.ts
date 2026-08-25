@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health */
+        get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/trips": {
         parameters: {
             query?: never;
@@ -242,6 +259,26 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HealthView
+         * @description What ``GET /health`` answers with.
+         *
+         *     ``status`` is derived from ``checks``, never set independently — a health endpoint
+         *     whose summary can disagree with its own evidence is worse than none. ``checks`` maps
+         *     a dependency to either ``"ok"``, ``"not configured"``, or a short reason it could not
+         *     be reached; reasons are exception *types*, never messages, because a psycopg error
+         *     message can carry the host and user it failed to connect as.
+         */
+        HealthView: {
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
+            /** Checks */
+            checks: {
+                [key: string]: string;
+            };
         };
         /**
          * IllustratedContentSet
@@ -854,6 +891,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthView"];
+                };
+            };
+        };
+    };
     submit_trip_trips_post: {
         parameters: {
             query?: never;

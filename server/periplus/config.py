@@ -112,6 +112,12 @@ class Settings(BaseSettings):
     obey_robots: bool = True
     max_chars_per_document: int = Field(default=24_000, gt=0)
 
+    # --- Observability ------------------------------------------------------------
+    log_level: str = Field(default="INFO", description="Standard logging level name.")
+    log_format: str = Field(
+        default="json", description="json for a log collector, text for a terminal."
+    )
+
     # --- Storage ----------------------------------------------------------------------
     database_url: str = "postgresql://localhost/periplus"
 

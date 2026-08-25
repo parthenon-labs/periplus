@@ -83,6 +83,18 @@ class PostgresRunPersistence:
     async def close(self) -> None:
         await self._pool.close()
 
+    async def ping(self) -> None:
+        """Borrow a connection and prove the database answers. Raises if it does not.
+
+        Goes through the pool rather than opening a connection of its own, so it
+        exercises the same path a real query takes — including the pool's
+        ``check_connection``, which is what discards a socket the server dropped while
+        the pool was idle. A ping that bypassed that would report healthy on exactly the
+        connections that are about to fail.
+        """
+        async with self._pool.connection() as conn:
+            await conn.execute("SELECT 1")
+
     async def save_started(self, *, run_id: str, brief: TripBrief) -> None:
         """Record that ``run_id`` began, before anything about its outcome is known.
 

@@ -198,3 +198,29 @@ class RunResultView(BaseModel):
     @classmethod
     def from_entry(cls, entry: RunEntry) -> RunResultView:
         return cls(id=entry.run_id, status=entry.status, error=entry.error, run=entry.result)
+
+
+class HealthView(BaseModel):
+    """What ``GET /health`` answers with.
+
+    ``status`` is derived from ``checks``, never set independently — a health endpoint
+    whose summary can disagree with its own evidence is worse than none. ``checks`` maps
+    a dependency to either ``"ok"``, ``"not configured"``, or a short reason it could not
+    be reached; reasons are exception *types*, never messages, because a psycopg error
+    message can carry the host and user it failed to connect as.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    version: str
+    checks: dict[str, str]
+
+    @classmethod
+    def from_checks(cls, checks: dict[str, str], *, version: str) -> HealthView:
+        healthy = all(value in {"ok", "not configured"} for value in checks.values())
+        return cls(status="ok" if healthy else "degraded", version=version, checks=checks)
+
+    @property
+    def is_healthy(self) -> bool:
+        return self.status == "ok"

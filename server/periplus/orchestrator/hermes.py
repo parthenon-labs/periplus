@@ -33,6 +33,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from periplus.models import Run, RunStatus, Stage, StageRun, TripBrief
+from periplus.observability import get_logger
 from periplus.orchestrator.artifacts import ArtifactStore, InMemoryArtifactStore
 from periplus.orchestrator.budget import BudgetTracker, ResourceUsage, RunBudget
 from periplus.orchestrator.clock import Clock, SystemClock
@@ -212,6 +213,21 @@ def _attach(run: Run, stage: Stage, artifact: object) -> None:
         run.illustrated = artifact
 
 
+logger = get_logger("orchestrator")
+
+
+def _stage_context(run: Run, stage_run: StageRun) -> dict[str, object]:
+    """The fields every stage event carries: enough to follow one run through a log with
+    several interleaved with it, and never any prompt, page or claim text."""
+    return {
+        "run_id": run.id,
+        "stage": stage_run.stage.value,
+        "attempt": stage_run.attempt,
+        "duration_ms": stage_run.duration_ms,
+        "tokens": stage_run.tokens,
+    }
+
+
 def _never_cancelled() -> bool:
     return False
 
@@ -337,6 +353,16 @@ class Hermes:
         """
         run = Run(brief=brief) if run_id is None else Run(id=run_id, brief=brief)
         _transition_run(run, RunStatus.RUNNING, clock=self.clock)
+        logger.info(
+            "run started",
+            extra={
+                "context": {
+                    "run_id": run.id,
+                    "destination": brief.destination,
+                    "stages": [stage.value for stage in self._stages],
+                }
+            },
+        )
         if on_run_created is not None:
             on_run_created(run)
         tracker = BudgetTracker(self.budget, self.clock)
@@ -382,6 +408,10 @@ class Hermes:
             stage_input = retained.artifact
 
         _transition_run(run, RunStatus.RUNNING, clock=self.clock)
+        logger.info(
+            "run replaying",
+            extra={"context": {"run_id": run.id, "from_stage": from_stage.value}},
+        )
         spent_usage, spent_seconds = _spent_so_far(run)
         tracker = BudgetTracker(
             self.budget, self.clock, usage=spent_usage, elapsed_seconds_before=spent_seconds
@@ -413,6 +443,18 @@ class Hermes:
                 last = run.stages[-1]
                 to = RunStatus.CANCELLED if last.status is RunStatus.CANCELLED else RunStatus.FAILED
                 _transition_run(run, to, clock=self.clock)
+                logger.warning(
+                    "run ended early",
+                    extra={
+                        "context": {
+                            "run_id": run.id,
+                            "status": to.value,
+                            "stage": last.stage.value,
+                            "attempt": last.attempt,
+                            "reason": last.error,
+                        }
+                    },
+                )
                 return
             current = result.artifact
             _attach(run, stage, current)
@@ -429,6 +471,16 @@ class Hermes:
                 continue
             index += 1
         _transition_run(run, RunStatus.SUCCEEDED, clock=self.clock)
+        logger.info(
+            "run succeeded",
+            extra={
+                "context": {
+                    "run_id": run.id,
+                    "attempts": len(run.stages),
+                    "tokens": run.total_tokens,
+                }
+            },
+        )
 
     def _recovery_jump(
         self, run: Run, stage: Stage, artifact: object
@@ -466,6 +518,18 @@ class Hermes:
 
         self._adapters[policy.resumes].set_followup(directive)
         self._recovery_passes[run.id] = used + 1
+        logger.info(
+            "recovery pass",
+            extra={
+                "context": {
+                    "run_id": run.id,
+                    "observed": policy.observes.value,
+                    "resuming": policy.resumes.value,
+                    "pass": used + 1,
+                    "of": policy.max_passes,
+                }
+            },
+        )
         return index, stage_input
 
     async def _attempt_stage(
@@ -508,12 +572,25 @@ class Hermes:
             if set_bundle_progress_callback is not None:
                 set_bundle_progress_callback(_bundle_progress_reporter(stage_run))
 
+            logger.info("stage started", extra={"context": _stage_context(run, stage_run)})
+
             try:
                 result = await adapter.run(stage_input)
             except TransientStageError as exc:
                 stage_run.error = f"transient: {exc}"
                 _transition_stage(stage_run, RunStatus.FAILED, clock=self.clock)
-                if attempts_this_drive < policy.max_attempts:
+                retrying = attempts_this_drive < policy.max_attempts
+                logger.warning(
+                    "stage failed transiently",
+                    extra={
+                        "context": {
+                            **_stage_context(run, stage_run),
+                            "reason": str(exc),
+                            "retrying": retrying,
+                        }
+                    },
+                )
+                if retrying:
                     if policy.backoff_seconds:
                         await asyncio.sleep(policy.backoff_seconds * attempts_this_drive)
                     attempt += 1
@@ -522,10 +599,22 @@ class Hermes:
             except StageFailure as exc:
                 stage_run.error = f"logical: {exc}"
                 _transition_stage(stage_run, RunStatus.FAILED, clock=self.clock)
+                logger.warning(
+                    "stage failed",
+                    extra={"context": {**_stage_context(run, stage_run), "reason": str(exc)}},
+                )
                 return None
             except Exception as exc:  # noqa: BLE001 - preserve an explicit terminal record
                 stage_run.error = f"internal: {type(exc).__name__}: {exc}"
                 _transition_stage(stage_run, RunStatus.FAILED, clock=self.clock)
+                # exc_info because an unclassified exception escaping an adapter is a bug
+                # in that adapter, and the StageRun's one-line error is not enough to fix
+                # it. The classified failures above are expected outcomes, not bugs.
+                logger.error(
+                    "stage raised an unclassified exception",
+                    exc_info=exc,
+                    extra={"context": _stage_context(run, stage_run)},
+                )
                 return None
 
             stage_run.calls.extend(result.calls)
@@ -539,6 +628,12 @@ class Hermes:
             if gate_reason is not None:
                 stage_run.error = f"gate: {gate_reason}"
                 _transition_stage(stage_run, RunStatus.FAILED, clock=self.clock)
+                logger.warning(
+                    "stage rejected by its gate",
+                    extra={
+                        "context": {**_stage_context(run, stage_run), "reason": gate_reason}
+                    },
+                )
                 return None
 
             # The stage completed and its artifact passed the gate, but its own usage —
@@ -550,10 +645,15 @@ class Hermes:
             if overshoot is not None:
                 stage_run.error = f"budget_exceeded: {overshoot}"
                 _transition_stage(stage_run, RunStatus.FAILED, clock=self.clock)
+                logger.warning(
+                    "stage exhausted the run budget",
+                    extra={"context": {**_stage_context(run, stage_run), "reason": overshoot}},
+                )
                 return None
 
             self.artifacts.mark_passed(run.id, stage, attempt)
             _transition_stage(stage_run, RunStatus.SUCCEEDED, clock=self.clock)
+            logger.info("stage succeeded", extra={"context": _stage_context(run, stage_run)})
             return result
 
     def _append_gated(
@@ -563,3 +663,7 @@ class Hermes:
         stage_run = StageRun(stage=stage, attempt=attempt, error=reason)
         run.stages.append(stage_run)
         _transition_stage(stage_run, status, clock=self.clock)
+        logger.warning(
+            "stage never started",
+            extra={"context": {**_stage_context(run, stage_run), "reason": reason}},
+        )
